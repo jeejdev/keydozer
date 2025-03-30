@@ -250,6 +250,30 @@ export const getPasswordsByUserId = async (userId: number): Promise<PasswordEntr
   )
 }
 
+export const updatePasswordById = async (
+  id: number,
+  encryptedPassword: string,
+  serviceName: string,
+  username: string,
+  url: string,
+  category: string,
+  notes: string
+): Promise<void> => {
+  if (!db) await initDB()
+  await db.runAsync(
+    `UPDATE passwords
+     SET encrypted_password = ?, service_name = ?, username = ?, url = ?, category = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?`,
+    encryptedPassword,
+    serviceName,
+    username,
+    url,
+    category,
+    notes,
+    id
+  )
+}
+
 export const deletePasswordById = async (passwordId: number): Promise<void> => {
   if (!db) await initDB()
   await db.runAsync("DELETE FROM passwords WHERE id = ?", passwordId)

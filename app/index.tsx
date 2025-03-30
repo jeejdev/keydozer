@@ -14,6 +14,7 @@ import {
   getLastUser,
   initDB,
   deleteDatabase,
+  getPasswordsByUserId,
 } from "../services/database"
 import * as FileSystem from "expo-file-system"
 import * as LocalAuthentication from "expo-local-authentication"
@@ -185,15 +186,46 @@ const LoginScreen: React.FC = () => {
 
           {process.env.EXPO_PUBLIC_DEVELOPMENT_MODE === "True" && (
             <>
-              <TouchableOpacity
-                style={[styles.button, { backgroundColor: colors.blue }]}
-                onPress={async () => {
-                  const allUsers = await getAllUsers()
-                  console.log("🔍 Todos os usuários do SQLite:", allUsers)
-                }}
-              >
-                <Text style={styles.buttonText}>[DEV] Ver Banco Local</Text>
-              </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.button, { backgroundColor: colors.blue }]}
+            onPress={async () => {
+              const allUsers = await getAllUsers()
+              console.log("🔍 ==== USUÁRIOS DO SQLITE ====")
+
+              for (const user of allUsers) {
+                console.log(`👤 Nome: ${user.name}`)
+                console.log(`📧 Email: ${user.email}`)
+                console.log(`🆔 ID: ${user.id}`)
+                console.log(`🔐 MasterKey Criptografada: ${user.encryptedMasterKey}`)
+                console.log(`💡 Dica de senha: ${user.passwordHint || "Nenhuma"}`)
+                console.log(`📅 Criado em: ${user.createdAt}`)
+                console.log(`---------------------------`)
+
+                const passwords = await getPasswordsByUserId(user.id)
+
+                if (passwords.length === 0) {
+                  console.log("🔓 Nenhuma senha cadastrada.\n")
+                } else {
+                  console.log(`🔐 Senhas cadastradas:`)
+                  passwords.forEach((pw, index) => {
+                    console.log(`\n  ${index + 1}) Serviço: ${pw.serviceName}`)
+                    console.log(`     🆔 ID: ${pw.id}`)
+                    console.log(`     👤 Username: ${pw.username}`)
+                    console.log(`     🌐 URL: ${pw.url}`)
+                    console.log(`     🗂 Categoria: ${pw.category}`)
+                    console.log(`     📝 Notas (criptografadas): ${pw.notes}`)
+                    console.log(`     🔑 Senha (criptografada): ${pw.encryptedPassword}`)
+                    console.log(`     📅 Criado em: ${pw.createdAt}`)
+                    console.log(`     🕒 Atualizado em: ${pw.updatedAt}`)
+                  })
+                  console.log("\n==============================\n")
+                }
+              }
+            }}
+          >
+            <Text style={styles.buttonText}>[DEV] Ver Banco Local</Text>
+          </TouchableOpacity>
 
               <TouchableOpacity
                 style={[styles.button, { backgroundColor: "#D32F2F" }]}
