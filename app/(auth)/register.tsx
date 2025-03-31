@@ -1,4 +1,4 @@
-import React, { useState } from "react"
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -6,137 +6,140 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
-} from "react-native"
-import { useRouter } from "expo-router"
-import { createUserWithEmailAndPassword } from "../../services/firebaseConfig"
-import { addUser, checkUserExistsByEmail } from "../../services/database"
+} from "react-native";
+import { useRouter } from "expo-router";
+import { createUserWithEmailAndPassword } from "../../services/firebaseConfig";
+import { addUser, checkUserExistsByEmail } from "../../services/database";
+import { saveDecryptedMasterKey } from "../utils/secureStore";
 import {
   hashPassword,
   generateRandomMasterKey,
   encryptWithPassword,
-} from "../../utils/encryption"
-import { colors } from "../../utils/theme"
+} from "../../utils/encryption";
+import { colors } from "../../utils/theme";
 import {
   checkPasswordStrength,
   generateStrongPassword,
   copyToClipboard,
-} from "../../utils/passwordUtils"
-import ErrorModal from "../../components/ErrorModal"
-import { auth } from "../../services/firebaseConfig"
+} from "../../utils/passwordUtils";
+import ErrorModal from "../../components/ErrorModal";
+import { auth } from "../../services/firebaseConfig";
 
 const RegisterScreen: React.FC = () => {
-  const router = useRouter()
-  const [name, setName] = useState("")
-  const [email, setEmail] = useState("")
-  const [password, setPassword] = useState("")
-  const [confirmPassword, setConfirmPassword] = useState("")
-  const [passwordHint, setPasswordHint] = useState("")
-  const [isGenerating, setIsGenerating] = useState(false)
-  const [modalVisible, setModalVisible] = useState(false)
-  const [modalMessage, setModalMessage] = useState("")
-  const [modalType, setModalType] = useState<"error" | "success" | "info">("info")
+  const router = useRouter();
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordHint, setPasswordHint] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [modalMessage, setModalMessage] = useState("");
+  const [modalType, setModalType] = useState<"error" | "success" | "info">("info");
 
-  const { isValid, requirements } = checkPasswordStrength(password)
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  const { isValid, requirements } = checkPasswordStrength(password);
 
   const showModal = (message: string, type: "error" | "success" | "info") => {
-    setModalMessage(message)
-    setModalType(type)
-    setModalVisible(true)
-  }
+    setModalMessage(message);
+    setModalType(type);
+    setModalVisible(true);
+  };
 
   const handleGeneratePassword = async () => {
-    setIsGenerating(true)
+    setIsGenerating(true);
     try {
-      const newPassword = generateStrongPassword(16)
-      setPassword(newPassword)
-      setConfirmPassword(newPassword)
-      await copyToClipboard(newPassword)
-      showModal("Senha gerada e copiada para a área de transferência!", "success")
+      const newPassword = generateStrongPassword(16);
+      setPassword(newPassword);
+      setConfirmPassword(newPassword);
+      await copyToClipboard(newPassword);
+      showModal("Senha gerada e copiada para a área de transferência!", "success");
     } catch (error) {
-      console.error("Erro ao gerar senha:", error)
-      showModal("Erro ao gerar senha. Tente novamente.", "error")
+      console.error("Erro ao gerar senha:", error);
+      showModal("Erro ao gerar senha. Tente novamente.", "error");
     }
-    setIsGenerating(false)
-  }
+    setIsGenerating(false);
+  };
 
   const handleRegister = async () => {
     if (!name || !email || !password || !confirmPassword) {
-      showModal("Todos os campos obrigatórios devem ser preenchidos!", "error")
-      return
+      showModal("Todos os campos obrigatórios devem ser preenchidos!", "error");
+      return;
     }
 
     if (password !== confirmPassword) {
-      showModal("As senhas não coincidem!", "error")
-      return
+      showModal("As senhas não coincidem!", "error");
+      return;
     }
 
     if (!isValid) {
-      showModal("Sua senha não atende aos requisitos de segurança.", "error")
-      return
+      showModal("Sua senha não atende aos requisitos de segurança.", "error");
+      return;
     }
 
     try {
-      const userExists = await checkUserExistsByEmail(email)
-      if (userExists) throw new Error("EMAIL_ALREADY_EXISTS")
-    
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password)
-      const firebaseUser = userCredential.user
-    
-      // Gera e criptografa masterKey
-      const masterKey = await generateRandomMasterKey()
-      const encryptedMasterKey = encryptWithPassword(masterKey, password)
-    
-      const hashedPassword = await hashPassword(password)
-    
-      // Tenta salvar localmente
-      await addUser(
-        name,
-        email,
-        hashedPassword,
-        encryptedMasterKey,
-        passwordHint || null
-      )
-    
-      showModal("Conta criada com sucesso!", "success")
+      const userExists = await checkUserExistsByEmail(email);
+      if (userExists) throw new Error("EMAIL_ALREADY_EXISTS");
+
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const firebaseUser = userCredential.user;
+
+      const masterKey = await generateRandomMasterKey();
+      const encryptedMasterKey = encryptWithPassword(masterKey, password);
+
+      const hashedPassword = await hashPassword(password);
+
+      await addUser(name, email, hashedPassword, encryptedMasterKey, passwordHint || null);
+
+      showModal("Conta criada com sucesso!", "success");
 
       if (encryptedMasterKey === "[ENCRYPTION_FAILED]") {
-        throw new Error("FALHA_CRIPTO")
+        throw new Error("FALHA_CRIPTO");
       }
 
       setTimeout(() => {
-        setModalVisible(false)
-        router.push({ pathname: "/", params: { email, password } })
-      }, 2000)
+        setModalVisible(false);
+        router.push({
+          pathname: "/",
+          params: { email, password, firstLogin: "true" },
+        });
+      }, 2000);
     } catch (error: any) {
-      console.error("❌ Erro ao criar conta:", error)
-    
-      // ⚠️ Se já tiver criado o usuário no Firebase, remove
-      const currentUser = auth.currentUser
+      console.error("❌ Erro ao criar conta:", error);
+
+      const currentUser = auth.currentUser;
       if (currentUser) {
         try {
-          await currentUser.delete()
-          console.log("🧹 Usuário removido do Firebase após falha local.")
+          await currentUser.delete();
+          console.log("🧹 Usuário removido do Firebase após falha local.");
         } catch (deleteErr) {
-          console.error("⚠️ Erro ao remover usuário do Firebase:", deleteErr)
+          console.error("⚠️ Erro ao remover usuário do Firebase:", deleteErr);
         }
       }
-    
-      let errorMessage = "Falha ao criar conta."
+
+      let errorMessage = "Falha ao criar conta.";
       if (error.code === "auth/email-already-in-use") {
-        errorMessage = "Este e-mail já está em uso."
+        errorMessage = "Este e-mail já está em uso.";
       } else if (error.message === "EMAIL_ALREADY_EXISTS") {
-        errorMessage = "Este e-mail já está cadastrado localmente."
+        errorMessage = "Este e-mail já está cadastrado localmente.";
       }
-    
-      showModal(errorMessage, "error")
+
+      showModal(errorMessage, "error");
     }
-  }
+  };
 
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Criar Conta</Text>
 
-      <TextInput style={styles.input} placeholder="Nome" value={name} onChangeText={setName} />
+      <TextInput
+        style={styles.input}
+        placeholder="Nome"
+        value={name}
+        onChangeText={setName}
+      />
       <TextInput
         style={styles.input}
         placeholder="E-mail"
@@ -145,13 +148,22 @@ const RegisterScreen: React.FC = () => {
         keyboardType="email-address"
         autoCapitalize="none"
       />
-      <TextInput
-        style={styles.input}
-        placeholder="Senha"
-        value={password}
-        onChangeText={setPassword}
-        secureTextEntry
-      />
+
+      <View style={styles.passwordContainer}>
+        <TextInput
+          style={styles.inputWithButton}
+          placeholder="Senha"
+          value={password}
+          onChangeText={setPassword}
+          secureTextEntry={!showPassword}
+        />
+        <TouchableOpacity
+          onPress={() => setShowPassword(!showPassword)}
+          style={styles.eyeButton}
+        >
+          <Text>{showPassword ? "🙈" : "👁️"}</Text>
+        </TouchableOpacity>
+      </View>
 
       <View style={styles.passwordStrengthContainer}>
         {requirements.map((req, index) => (
@@ -176,13 +188,22 @@ const RegisterScreen: React.FC = () => {
         )}
       </TouchableOpacity>
 
-      <TextInput
-        style={styles.input}
-        placeholder="Confirmar Senha"
-        value={confirmPassword}
-        onChangeText={setConfirmPassword}
-        secureTextEntry
-      />
+      <View style={styles.passwordContainer}>
+        <TextInput
+          style={styles.inputWithButton}
+          placeholder="Confirmar Senha"
+          value={confirmPassword}
+          onChangeText={setConfirmPassword}
+          secureTextEntry={!showConfirmPassword}
+        />
+        <TouchableOpacity
+          onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+          style={styles.eyeButton}
+        >
+          <Text>{showConfirmPassword ? "🙈" : "👁️"}</Text>
+        </TouchableOpacity>
+      </View>
+
       <TextInput
         style={styles.input}
         placeholder="Dica de Senha (Opcional)"
@@ -205,8 +226,8 @@ const RegisterScreen: React.FC = () => {
         onClose={() => setModalVisible(false)}
       />
     </View>
-  )
-}
+  );
+};
 
 const styles = StyleSheet.create({
   container: {
@@ -230,6 +251,24 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: 10,
     backgroundColor: "#fff",
+  },
+  inputWithButton: {
+    flex: 1,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: colors.mediumGray,
+    borderRadius: 8,
+    backgroundColor: "#fff",
+  },
+  passwordContainer: {
+    width: "90%",
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  eyeButton: {
+    marginLeft: 8,
+    padding: 8,
   },
   button: {
     backgroundColor: colors.yellow,
@@ -275,6 +314,6 @@ const styles = StyleSheet.create({
   passwordRequirementMet: {
     color: colors.green,
   },
-})
+});
 
-export default RegisterScreen
+export default RegisterScreen;

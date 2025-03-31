@@ -104,36 +104,28 @@ export const checkUserExistsByEmail = async (email: string): Promise<boolean> =>
   return !!user
 }
 
+export const getUserByEmail = async (email: string): Promise<User | null> => {
+  if (!db) await initDB()
+  const user = await db.getFirstAsync("SELECT * FROM users WHERE email = ?", email)
+  return user ? User.fromRow(user) : null
+}
+
 export const getFirstUser = async (): Promise<User | null> => {
   if (!db) await initDB()
-  const user = (await db.getFirstAsync("SELECT * FROM users")) as UserRow | undefined
-  return user
-    ? new User(
-        user.id,
-        user.name,
-        user.email,
-        user.password,
-        user.password_hint,
-        user.encrypted_master_key,
-        user.created_at
-      )
-    : null
+  const user = await db.getFirstAsync("SELECT * FROM users")
+  return user ? User.fromRow(user) : null
 }
 
 export const getLastUser = async (): Promise<User | null> => {
   if (!db) await initDB()
-  const user = (await db.getFirstAsync("SELECT * FROM users ORDER BY id DESC LIMIT 1")) as UserRow | undefined
-  return user
-    ? new User(
-        user.id,
-        user.name,
-        user.email,
-        user.password,
-        user.password_hint,
-        user.encrypted_master_key,
-        user.created_at
-      )
-    : null
+  const user = await db.getFirstAsync("SELECT * FROM users ORDER BY id DESC LIMIT 1")
+  return user ? User.fromRow(user) : null
+}
+
+export const getAllUsers = async (): Promise<User[]> => {
+  if (!db) await initDB()
+  const users = await db.getAllAsync("SELECT * FROM users")
+  return users.map(User.fromRow)
 }
 
 export const updateUserName = async (email: string, newName: string): Promise<void> => {
@@ -141,20 +133,17 @@ export const updateUserName = async (email: string, newName: string): Promise<vo
   await db.runAsync("UPDATE users SET name = ? WHERE email = ?", newName, email)
 }
 
-export const getAllUsers = async (): Promise<User[]> => {
+export const updateUserEncryptedData = async (
+  email: string,
+  newHashedPassword: string,
+  newEncryptedMasterKey: string
+): Promise<void> => {
   if (!db) await initDB()
-  const users = (await db.getAllAsync("SELECT * FROM users")) as UserRow[]
-  return users.map(
-    (user) =>
-      new User(
-        user.id,
-        user.name,
-        user.email,
-        user.password,
-        user.password_hint,
-        user.encrypted_master_key,
-        user.created_at
-      )
+  await db.runAsync(
+    "UPDATE users SET password = ?, encrypted_master_key = ? WHERE email = ?",
+    newHashedPassword,
+    newEncryptedMasterKey,
+    email
   )
 }
 
@@ -176,35 +165,7 @@ export const deleteDatabase = async (): Promise<void> => {
   }
 }
 
-export const getUserByEmail = async (email: string): Promise<User | null> => {
-  if (!db) await initDB()
-  const user = (await db.getFirstAsync("SELECT * FROM users WHERE email = ?", email)) as UserRow | undefined
-  return user
-    ? new User(
-        user.id,
-        user.name,
-        user.email,
-        user.password,
-        user.password_hint,
-        user.encrypted_master_key,
-        user.created_at
-      )
-    : null
-}
-
-export const updateUserEncryptedData = async (
-  email: string,
-  newHashedPassword: string,
-  newEncryptedMasterKey: string
-): Promise<void> => {
-  if (!db) await initDB()
-  await db.runAsync(
-    "UPDATE users SET password = ?, encrypted_master_key = ? WHERE email = ?",
-    newHashedPassword,
-    newEncryptedMasterKey,
-    email
-  )
-}
+// ===== PASSWORDS ===== //
 
 export const addPassword = async (
   userId: number,
@@ -232,7 +193,7 @@ export const addPassword = async (
 
 export const getPasswordsByUserId = async (userId: number): Promise<PasswordEntry[]> => {
   if (!db) await initDB()
-  const rows = (await db.getAllAsync("SELECT * FROM passwords WHERE user_id = ?", userId)) as PasswordRow[]
+  const rows = await db.getAllAsync("SELECT * FROM passwords WHERE user_id = ?", userId) as PasswordRow[]
   return rows.map(
     (row) =>
       new PasswordEntry(

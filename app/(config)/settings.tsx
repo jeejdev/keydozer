@@ -22,8 +22,7 @@ import {
 import {
   deleteDatabase,
   updateUserName,
-  getUserByEmail,
-  updateUserEncryptedData
+  updateUserEncryptedData,
 } from "../../services/database"
 import { colors } from "../../utils/theme"
 import {
@@ -32,7 +31,12 @@ import {
 } from "../../utils/passwordUtils"
 import ErrorModal from "../../components/ErrorModal"
 import { useAuth } from "../../context/AuthContext"
-import { decryptWithPassword, encryptWithPassword, hashPassword } from "../../utils/encryption"
+import {
+  decryptWithPassword,
+  encryptWithPassword,
+  hashPassword,
+} from "../../utils/encryption"
+import { clearDecryptedMasterKey } from "@/utils/secureStore"
 
 const SettingsScreen: React.FC = () => {
   const router = useRouter()
@@ -42,6 +46,8 @@ const SettingsScreen: React.FC = () => {
   const [email, setEmail] = useState("")
   const [currentPassword, setCurrentPassword] = useState("")
   const [newPassword, setNewPassword] = useState("")
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false)
+  const [showNewPassword, setShowNewPassword] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
 
   const [modalVisible, setModalVisible] = useState(false)
@@ -109,46 +115,43 @@ const SettingsScreen: React.FC = () => {
       showModal("Você precisa estar logado para editar os dados.", "info")
       return
     }
-  
+
     const isAuthenticated = await reauthenticateUser()
     if (!isAuthenticated) return
-  
+
     try {
       if (email !== firebaseUser.email) {
         await updateEmail(firebaseUser, email)
       }
-  
+
       let newEncryptedMasterKey = null
       let newHashedPassword = null
-  
+
       if (newPassword) {
         await updatePassword(firebaseUser, newPassword)
-  
-        // 🔓 Descriptografa masterKey com senha atual
-        const decryptedMasterKey = decryptWithPassword(localUser.encryptedMasterKey, currentPassword)
-  
+
+        const decryptedMasterKey =
+          localUser.decryptedMasterKey ||
+          decryptWithPassword(localUser.encryptedMasterKey, currentPassword)
+
         if (!decryptedMasterKey) {
           showModal("Erro ao descriptografar a chave mestra. Verifique sua senha atual.", "error")
           return
         }
-  
-        // 🔐 Recriptografa com a nova senha
+
         newEncryptedMasterKey = encryptWithPassword(decryptedMasterKey, newPassword)
         newHashedPassword = await hashPassword(newPassword)
-  
-        // 🔄 Atualiza no banco
+
         await updateUserEncryptedData(localUser.email, newHashedPassword, newEncryptedMasterKey)
       }
-  
+
       await updateUserName(email, name)
-  
       showModal("✅ Dados atualizados com sucesso!", "success")
     } catch (error) {
       showModal("❌ Não foi possível atualizar os dados.", "error")
       console.error("Erro ao atualizar perfil:", error)
     }
   }
-  
 
   const confirmDeleteAccount = () => {
     if (!currentPassword) {
@@ -169,16 +172,14 @@ const SettingsScreen: React.FC = () => {
 
       await deleteUser(firebaseUser)
       await deleteDatabase()
+      await clearDecryptedMasterKey()
 
       showModal("✅ Conta e dados excluídos com sucesso!", "success")
       await signOut(auth)
       router.replace("/")
     } catch (error) {
       console.error("Erro ao excluir conta e dados:", error)
-      showModal(
-        "❌ Não foi possível excluir a conta e os dados. Verifique sua conexão e tente novamente mais tarde.",
-        "error"
-      )
+      showModal("❌ Não foi possível excluir a conta e os dados. Verifique sua conexão e tente novamente mais tarde.", "error")
     }
   }
 
@@ -187,11 +188,11 @@ const SettingsScreen: React.FC = () => {
       <Text style={styles.title}>Configurações</Text>
 
       <Text style={styles.label}>Nome</Text>
-      <TextInput style={styles.input} value={name} onChangeText={setName} placeholder="Nome" />
+      <TextInput style={[styles.input, { width: "100%" }]} value={name} onChangeText={setName} placeholder="Nome" />
 
       <Text style={styles.label}>E-mail</Text>
       <TextInput
-        style={styles.input}
+        style={[styles.input, { width: "100%" }]}
         value={email}
         onChangeText={setEmail}
         keyboardType="email-address"
@@ -199,22 +200,32 @@ const SettingsScreen: React.FC = () => {
       />
 
       <Text style={styles.label}>Senha Atual</Text>
-      <TextInput
-        style={styles.input}
-        value={currentPassword}
-        onChangeText={setCurrentPassword}
-        secureTextEntry
-        placeholder="Senha Atual"
-      />
+      <View style={styles.passwordField}>
+        <TextInput
+          style={[styles.input, { flex: 1 }]}
+          value={currentPassword}
+          onChangeText={setCurrentPassword}
+          secureTextEntry={!showCurrentPassword}
+          placeholder="Senha Atual"
+        />
+        <TouchableOpacity onPress={() => setShowCurrentPassword(!showCurrentPassword)}>
+          <Text style={{ marginLeft: 10 }}>{showCurrentPassword ? "🙈" : "👁️"}</Text>
+        </TouchableOpacity>
+      </View>
 
       <Text style={styles.label}>Nova Senha</Text>
-      <TextInput
-        style={styles.input}
-        value={newPassword}
-        onChangeText={setNewPassword}
-        secureTextEntry
-        placeholder="Nova Senha"
-      />
+      <View style={styles.passwordField}>
+        <TextInput
+          style={[styles.input, { flex: 1 }]}
+          value={newPassword}
+          onChangeText={setNewPassword}
+          secureTextEntry={!showNewPassword}
+          placeholder="Nova Senha"
+        />
+        <TouchableOpacity onPress={() => setShowNewPassword(!showNewPassword)}>
+          <Text style={{ marginLeft: 10 }}>{showNewPassword ? "🙈" : "👁️"}</Text>
+        </TouchableOpacity>
+      </View>
 
       <TouchableOpacity
         style={styles.generateButton}
@@ -236,7 +247,6 @@ const SettingsScreen: React.FC = () => {
         <Text style={[styles.buttonText, styles.deleteButtonText]}>Excluir Conta e Dados</Text>
       </TouchableOpacity>
 
-      {/* Modal confirmação de exclusão */}
       <Modal
         visible={confirmDeleteVisible}
         animationType="slide"
@@ -312,13 +322,17 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   input: {
-    width: "100%",
+    backgroundColor: "#fff",
     padding: 12,
     borderWidth: 1,
     borderRadius: 8,
-    backgroundColor: "#fff",
     borderColor: colors.mediumGray,
     marginBottom: 10,
+  },
+  passwordField: {
+    flexDirection: "row",
+    alignItems: "center",
+    width: "100%",
   },
   button: {
     backgroundColor: colors.yellow,

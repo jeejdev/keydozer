@@ -20,6 +20,7 @@ import SettingsScreen from "./(config)/settings"
 import { useAuth } from "../context/AuthContext"
 import PasswordListScreen from "./(passwords)/all"
 import PasswordManagerScreen from "./(passwords)/PasswordManagerScreen"
+import { clearDecryptedMasterKey } from "@/utils/secureStore"
 
 const Drawer = createDrawerNavigator()
 
@@ -40,13 +41,14 @@ const DrawerNavigator = () => {
             onPress: async () => {
               try {
                 await signOut(auth)
+                await clearDecryptedMasterKey()
                 setFirebaseUser(null)
                 setLocalUser(null)
                 router.replace("/")
               } catch (error) {
                 console.error("Erro ao sair:", error)
               }
-            },
+            },            
           },
         ],
         { cancelable: false }
