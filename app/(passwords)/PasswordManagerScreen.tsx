@@ -19,7 +19,11 @@ import {
   updatePasswordById,
 } from "../../services/database";
 import { decryptData, encryptData } from "../../utils/encryption";
-import { copyToClipboard } from "../../utils/passwordUtils";
+import {
+  copyToClipboard,
+  generateStrongPassword,
+  checkPasswordStrength,
+} from "../../utils/passwordUtils";
 import { colors } from "../../utils/theme";
 import ErrorModal from "../../components/ErrorModal";
 
@@ -39,10 +43,13 @@ const PasswordManagerScreen = () => {
   const [notes, setNotes] = useState("");
   const [category, setCategory] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
 
   const [modalMessage, setModalMessage] = useState("");
   const [modalType, setModalType] = useState("info");
   const [errorVisible, setErrorVisible] = useState(false);
+
+  const { isValid, requirements } = checkPasswordStrength(password);
 
   const showModal = (message: string, type: string = "info") => {
     setModalMessage(message);
@@ -179,6 +186,20 @@ const PasswordManagerScreen = () => {
     setModalVisible(true);
   };
 
+  const handleGeneratePassword = async () => {
+    setIsGenerating(true);
+    try {
+      const newPassword = generateStrongPassword(16);
+      setPassword(newPassword);
+      await copyToClipboard(newPassword);
+      showModal("Senha gerada e copiada para a área de transferência!", "success");
+    } catch (e) {
+      console.error("Erro ao gerar senha:", e);
+      showModal("Erro ao gerar senha. Tente novamente.", "error");
+    }
+    setIsGenerating(false);
+  };
+
   useEffect(() => {
     loadPasswords();
   }, []);
@@ -263,8 +284,32 @@ const PasswordManagerScreen = () => {
               secureTextEntry={!showPassword}
             />
             <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
-              <Text style={{ fontSize: 20 }}>{showPassword ? "🚫" : "👁️"}</Text>
+              <Text style={{ fontSize: 20 }}>{showPassword ? "🙈" : "👁️"}</Text>
             </TouchableOpacity>
+          </View>
+
+          <TouchableOpacity
+            style={[styles.button, { backgroundColor: colors.darkGray }]}
+            onPress={handleGeneratePassword}
+            disabled={isGenerating}
+          >
+            <Text style={[styles.buttonText, { color: "white" }]}>
+              {isGenerating ? "Gerando..." : "🔒 Gerar Senha Segura"}
+            </Text>
+          </TouchableOpacity>
+
+          <View style={{ alignSelf: "flex-start", paddingLeft: 4, marginBottom: 10 }}>
+            {requirements.map((req, index) => (
+              <Text
+                key={index}
+                style={{
+                  color: req.met ? colors.green : colors.mediumGray,
+                  fontSize: 14,
+                }}
+              >
+                {req.met ? "✅" : "❌"} {req.label}
+              </Text>
+            ))}
           </View>
 
           <TextInput
