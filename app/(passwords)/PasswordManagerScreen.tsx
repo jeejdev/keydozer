@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react"
+import React, { useState } from "react"
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
   ScrollView,
   ActivityIndicator,
 } from "react-native"
+import { useFocusEffect } from "@react-navigation/native"
 import { useAuth } from "../../context/AuthContext"
 import {
   addPassword,
@@ -22,26 +23,29 @@ import { decryptData, encryptData } from "../../utils/encryption"
 import { copyToClipboard } from "../../utils/passwordUtils"
 import { colors } from "../../utils/theme"
 import ErrorModal from "../../components/ErrorModal"
+import { auth, EmailAuthProvider, reauthenticateWithCredential } from "@/services/firebaseConfig"
+import AsyncStorage from "@react-native-async-storage/async-storage"
+import { Ionicons } from '@expo/vector-icons'
 
 const PasswordManagerScreen = () => {
   const { localUser } = useAuth()
   const [groupedPasswords, setGroupedPasswords] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-
   const [modalVisible, setModalVisible] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const [selectedId, setSelectedId] = useState<number | null>(null)
-
   const [serviceName, setServiceName] = useState("")
   const [password, setPassword] = useState("")
   const [username, setUsername] = useState("")
-  const [url, setUrl] = useState("")
-  const [notes, setNotes] = useState("")
+  const [additionalInfo, setAdditionalInfo] = useState("")
   const [category, setCategory] = useState("")
-
   const [modalMessage, setModalMessage] = useState("")
   const [modalType, setModalType] = useState("info")
   const [errorVisible, setErrorVisible] = useState(false)
+  const [canViewPasswords, setCanViewPasswords] = useState(false)
+  const [passwordPromptVisible, setPasswordPromptVisible] = useState(false)
+  const [passwordInput, setPasswordInput] = useState("")
+  const [showPassword, setShowPassword] = useState(false)
 
   const showModal = (message: string, type: string = "info") => {
     setModalMessage(message)
@@ -54,14 +58,29 @@ const PasswordManagerScreen = () => {
     setServiceName("")
     setPassword("")
     setUsername("")
-    setUrl("")
-    setNotes("")
+    setAdditionalInfo("")
     setCategory("")
+  }
+
+  const reauthenticateUser = async (inputPassword: string): Promise<boolean> => {
+    const user = auth.currentUser
+    if (!user) return false
+
+    try {
+      const credential = EmailAuthProvider.credential(user.email!, inputPassword)
+      await reauthenticateWithCredential(user, credential)
+      return true
+    } catch (error) {
+      showModal("Senha incorreta. Tente novamente.", "error")
+      setPasswordPromptVisible(true)
+      return false
+    }
   }
 
   const loadPasswords = async () => {
     if (!localUser) return
     setLoading(true)
+
     try {
       const passwords = await getPasswordsByUserId(localUser.id)
       const grouped: Record<string, any[]> = {}
@@ -71,11 +90,11 @@ const PasswordManagerScreen = () => {
         const category = entry.category?.trim() || "Outros"
         if (!grouped[category]) grouped[category] = []
 
-        const decryptedNotes = decryptData(entry.notes || "", localUser.decryptedMasterKey || "")
+        const decryptedadditionalInfo = decryptData(entry.additionalInfo || "", localUser.decryptedMasterKey || "")
         grouped[category].push({
           ...entry,
           decryptedPassword,
-          decryptedNotes,
+          decryptedadditionalInfo,
         })
       }
 
@@ -85,7 +104,37 @@ const PasswordManagerScreen = () => {
       console.error("Erro ao carregar senhas:", error)
       showModal("Erro ao carregar senhas.", "error")
     }
+
     setLoading(false)
+  }
+
+  useFocusEffect(
+    React.useCallback(() => {
+      const checkProtectionAndLoad = async () => {
+        setCanViewPasswords(false)
+        const setting = await AsyncStorage.getItem("requirePasswordToView")
+        const require = setting === "true"
+
+        if (require) {
+          setPasswordPromptVisible(true)
+        } else {
+          setCanViewPasswords(true)
+          loadPasswords()
+        }
+      }
+
+      checkProtectionAndLoad()
+    }, [])
+  )
+
+  const confirmPasswordView = async () => {
+    const success = await reauthenticateUser(passwordInput)
+    if (success) {
+      setPasswordPromptVisible(false)
+      setCanViewPasswords(true)
+      loadPasswords()
+    }
+    setPasswordInput("")
   }
 
   const handleSave = async () => {
@@ -95,7 +144,7 @@ const PasswordManagerScreen = () => {
     }
     try {
       const encryptedPassword = encryptData(password, localUser.decryptedMasterKey || "")
-      const encryptedNotes = encryptData(notes || "", localUser.decryptedMasterKey || "")
+      const encryptedadditionalInfo = encryptData(additionalInfo || "", localUser.decryptedMasterKey || "")
 
       if (isEditing && selectedId !== null) {
         await updatePasswordById(
@@ -103,9 +152,8 @@ const PasswordManagerScreen = () => {
           encryptedPassword,
           serviceName,
           username,
-          url,
           category,
-          encryptedNotes
+          encryptedadditionalInfo
         )
       } else {
         await addPassword(
@@ -113,9 +161,8 @@ const PasswordManagerScreen = () => {
           encryptedPassword,
           serviceName,
           username,
-          url,
           category,
-          encryptedNotes
+          encryptedadditionalInfo
         )
       }
 
@@ -152,15 +199,10 @@ const PasswordManagerScreen = () => {
     setServiceName(item.serviceName)
     setPassword(item.decryptedPassword)
     setUsername(item.username)
-    setUrl(item.url)
-    setNotes(item.decryptedNotes || "")
+    setAdditionalInfo(item.decryptedadditionalInfo || "")
     setCategory(item.category)
     setModalVisible(true)
   }
-
-  useEffect(() => {
-    loadPasswords()
-  }, [])
 
   return (
     <View style={styles.container}>
@@ -168,6 +210,10 @@ const PasswordManagerScreen = () => {
 
       {loading ? (
         <ActivityIndicator color={colors.darkGray} size="large" />
+      ) : groupedPasswords.length === 0 ? (
+        <Text style={{ textAlign: "center", marginTop: 32, fontSize: 16, color: colors.mediumGray }}>
+          Nenhuma senha criada ainda, crie clicando ali embaixo, ó 👇
+        </Text>
       ) : (
         <SectionList
           sections={groupedPasswords}
@@ -181,13 +227,16 @@ const PasswordManagerScreen = () => {
               <Text style={styles.cardTitle}>{item.serviceName}</Text>
               <Text style={styles.cardSubtitle}>👤 {item.username || "-"}</Text>
               <View style={styles.passwordRow}>
-                <Text style={styles.cardSubtitle}>🔑 {item.decryptedPassword}</Text>
-                <TouchableOpacity onPress={() => copyToClipboard(item.decryptedPassword)}>
+                <Text style={styles.cardSubtitle}>
+                  🔑 {canViewPasswords ? item.decryptedPassword : "******"}
+                </Text>
+                <TouchableOpacity onPress={() => canViewPasswords && copyToClipboard(item.decryptedPassword)}>
                   <Text style={styles.copy}>📋</Text>
                 </TouchableOpacity>
               </View>
-              <Text style={styles.cardSubtitle}>🔗 {item.url || "-"}</Text>
-              <Text style={styles.cardSubtitle}>📝 {item.decryptedNotes || "-"}</Text>
+              <Text style={styles.cardSubtitle}>
+                📝 {canViewPasswords ? item.decryptedadditionalInfo || "-" : "******"}
+              </Text>
             </TouchableOpacity>
           )}
           renderSectionHeader={({ section: { title } }) => (
@@ -208,11 +257,21 @@ const PasswordManagerScreen = () => {
         <ScrollView contentContainerStyle={styles.modalContainer}>
           <Text style={styles.title}>{isEditing ? "Editar Senha" : "Nova Senha"}</Text>
           <TextInput style={styles.input} placeholder="🔒 Nome do serviço" value={serviceName} onChangeText={setServiceName} />
-          <TextInput style={styles.input} placeholder="🔑 Senha" value={password} onChangeText={setPassword} secureTextEntry />
+          <View style={{ flexDirection: "row", alignItems: "center" }}>
+            <TextInput
+              style={[styles.input, { flex: 1 }]}
+              placeholder="🔑 Senha"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry={!showPassword}
+            />
+            <TouchableOpacity onPress={() => setShowPassword(prev => !prev)} style={{ marginLeft: 10 }}>
+              <Ionicons name={showPassword ? "eye-off" : "eye"} size={24} color={colors.darkGray} />
+            </TouchableOpacity>
+          </View>
           <TextInput style={styles.input} placeholder="👤 Nome de usuário" value={username} onChangeText={setUsername} />
-          <TextInput style={styles.input} placeholder="🔗 URL" value={url} onChangeText={setUrl} />
           <TextInput style={styles.input} placeholder="🗂 Categoria" value={category} onChangeText={setCategory} />
-          <TextInput style={[styles.input, { height: 80 }]} placeholder="📝 Notas" multiline value={notes} onChangeText={setNotes} />
+          <TextInput style={[styles.input, { height: 80 }]} placeholder="📝 Informações adicionais" multiline value={additionalInfo} onChangeText={setAdditionalInfo} />
 
           <TouchableOpacity style={styles.button} onPress={handleSave}>
             <Text style={styles.buttonText}>Salvar</Text>
@@ -233,11 +292,37 @@ const PasswordManagerScreen = () => {
         </ScrollView>
       </Modal>
 
+      <Modal visible={passwordPromptVisible} animationType="fade" transparent>
+        <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "rgba(0,0,0,0.5)" }}>
+          <View style={{ backgroundColor: "white", padding: 20, borderRadius: 10, width: "85%" }}>
+            <Text style={{ fontSize: 16, fontWeight: "bold", marginBottom: 10 }}>
+              🔒 Proteção ativada
+            </Text>
+            <Text style={{ marginBottom: 10 }}>
+              Digite sua senha para visualizar as senhas salvas:
+            </Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Senha da conta"
+              value={passwordInput}
+              onChangeText={setPasswordInput}
+              secureTextEntry
+            />
+            <TouchableOpacity style={[styles.button, { marginTop: 10 }]} onPress={confirmPasswordView}>
+              <Text style={styles.buttonText}>Confirmar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       <ErrorModal
         visible={errorVisible}
         message={modalMessage}
         type={modalType as any}
-        onClose={() => setErrorVisible(false)}
+        onClose={() => {
+          setErrorVisible(false)
+          if (modalType === "error") setPasswordPromptVisible(true)
+        }}
       />
     </View>
   )

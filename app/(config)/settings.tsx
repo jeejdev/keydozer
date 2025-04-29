@@ -22,7 +22,6 @@ import {
 import {
   deleteDatabase,
   updateUserName,
-  getUserByEmail,
   updateUserEncryptedData
 } from "../../services/database"
 import { colors } from "../../utils/theme"
@@ -33,6 +32,9 @@ import {
 import ErrorModal from "../../components/ErrorModal"
 import { useAuth } from "../../context/AuthContext"
 import { decryptWithPassword, encryptWithPassword, hashPassword } from "../../utils/encryption"
+import AsyncStorage from "@react-native-async-storage/async-storage"
+import { useFocusEffect } from "@react-navigation/native"
+import { Ionicons } from "@expo/vector-icons"
 
 const SettingsScreen: React.FC = () => {
   const router = useRouter()
@@ -42,30 +44,95 @@ const SettingsScreen: React.FC = () => {
   const [email, setEmail] = useState("")
   const [currentPassword, setCurrentPassword] = useState("")
   const [newPassword, setNewPassword] = useState("")
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false)
+  const [showNewPassword, setShowNewPassword] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
-
   const [modalVisible, setModalVisible] = useState(false)
   const [modalMessage, setModalMessage] = useState("")
   const [modalType, setModalType] = useState<"error" | "info" | "success">("info")
-
+  const [extrasVisible, setExtrasVisible] = useState(false)
   const [confirmDeleteVisible, setConfirmDeleteVisible] = useState(false)
   const [confirmText, setConfirmText] = useState("")
+  const [requirePasswordToView, setRequirePasswordToView] = useState(false)
 
   const firebaseUser = auth.currentUser
 
   useEffect(() => {
-    const fetchUserData = () => {
-      if (firebaseUser) {
-        setName(localUser?.name || firebaseUser.displayName || "Usuário")
-        setEmail(firebaseUser.email || "")
-      } else if (localUser) {
-        setName(localUser.name)
-        setEmail(localUser.email)
+    if (firebaseUser) {
+      setName(localUser?.name || firebaseUser.displayName || "Usuário")
+      setEmail(firebaseUser.email || "")
+    } else if (localUser) {
+      setName(localUser.name)
+      setEmail(localUser.email)
+    }
+  }, [localUser, firebaseUser])
+
+  useEffect(() => {
+    const loadRequirePasswordSetting = async () => {
+      const value = await AsyncStorage.getItem("requirePasswordToView")
+      if (value !== null) {
+        setRequirePasswordToView(value === "true")
       }
     }
+    loadRequirePasswordSetting()
+  }, [])
 
-    fetchUserData()
-  }, [localUser, firebaseUser])
+  useFocusEffect(
+    React.useCallback(() => {
+      setCurrentPassword("")
+    }, [])
+  )
+
+  const toggleRequirePasswordToView = async () => {
+    if (!firebaseUser || !currentPassword) {
+      showModal("Digite sua senha atual para continuar.", "error")
+      return
+    }
+
+    try {
+      const credential = EmailAuthProvider.credential(firebaseUser.email!, currentPassword)
+      await reauthenticateWithCredential(firebaseUser, credential)
+    } catch {
+      showModal("Senha atual incorreta.", "error")
+      return
+    }
+
+    const newValue = !requirePasswordToView
+    setRequirePasswordToView(newValue)
+    await AsyncStorage.setItem("requirePasswordToView", newValue.toString())
+    showModal(
+      newValue ? "🔐 Proteção para visualizar senhas ativada!" : "🔓 Proteção para visualizar senhas desativada.",
+      "success"
+    )
+  }
+
+  const confirmDeleteAccount = () => {
+    if (!currentPassword) {
+      showModal("Digite sua senha atual antes de excluir a conta.", "error")
+      return
+    }
+    setConfirmText("")
+    setConfirmDeleteVisible(true)
+  }
+
+  const handleDeleteAccount = async () => {
+    if (confirmText.trim().toLowerCase() !== "eu confirmo") return
+
+    try {
+      if (!firebaseUser) return
+      const credential = EmailAuthProvider.credential(firebaseUser.email!, currentPassword)
+      await reauthenticateWithCredential(firebaseUser, credential)
+
+      await deleteUser(firebaseUser)
+      await deleteDatabase()
+
+      showModal("✅ Conta e dados excluídos com sucesso!", "success")
+      await signOut(auth)
+      router.replace("/")
+    } catch (error) {
+      showModal("❌ Não foi possível excluir a conta.", "error")
+    }
+  }
 
   const showModal = (message: string, type: "error" | "info" | "success") => {
     setModalMessage(message)
@@ -82,26 +149,8 @@ const SettingsScreen: React.FC = () => {
       showModal("🔐 Senha gerada e copiada para a área de transferência.", "success")
     } catch (error) {
       showModal("Erro ao gerar senha. Tente novamente.", "error")
-      console.error("Erro ao gerar senha:", error)
     }
     setIsGenerating(false)
-  }
-
-  const reauthenticateUser = async (): Promise<boolean> => {
-    if (!firebaseUser || !currentPassword) {
-      showModal("Digite sua senha atual para continuar.", "error")
-      return false
-    }
-
-    try {
-      const credential = EmailAuthProvider.credential(firebaseUser.email as string, currentPassword)
-      await reauthenticateWithCredential(firebaseUser, credential)
-      return true
-    } catch (error) {
-      showModal("Senha atual incorreta.", "error")
-      console.error("Erro ao reautenticar:", error)
-      return false
-    }
   }
 
   const handleUpdateProfile = async () => {
@@ -109,78 +158,60 @@ const SettingsScreen: React.FC = () => {
       showModal("Você precisa estar logado para editar os dados.", "info")
       return
     }
-  
-    const isAuthenticated = await reauthenticateUser()
-    if (!isAuthenticated) return
-  
+
+    try {
+      const credential = EmailAuthProvider.credential(firebaseUser.email!, currentPassword)
+      await reauthenticateWithCredential(firebaseUser, credential)
+    } catch (error) {
+      showModal("Senha atual incorreta.", "error")
+      return
+    }
+
     try {
       if (email !== firebaseUser.email) {
         await updateEmail(firebaseUser, email)
       }
-  
-      let newEncryptedMasterKey = null
-      let newHashedPassword = null
-  
+
       if (newPassword) {
         await updatePassword(firebaseUser, newPassword)
-  
-        // 🔓 Descriptografa masterKey com senha atual
+
         const decryptedMasterKey = decryptWithPassword(localUser.encryptedMasterKey, currentPassword)
-  
         if (!decryptedMasterKey) {
-          showModal("Erro ao descriptografar a chave mestra. Verifique sua senha atual.", "error")
+          showModal("Erro ao descriptografar a chave mestra.", "error")
           return
         }
-  
-        // 🔐 Recriptografa com a nova senha
-        newEncryptedMasterKey = encryptWithPassword(decryptedMasterKey, newPassword)
-        newHashedPassword = await hashPassword(newPassword)
-  
-        // 🔄 Atualiza no banco
+
+        const newEncryptedMasterKey = encryptWithPassword(decryptedMasterKey, newPassword)
+        const newHashedPassword = await hashPassword(newPassword)
+
         await updateUserEncryptedData(localUser.email, newHashedPassword, newEncryptedMasterKey)
       }
-  
+
       await updateUserName(email, name)
-  
+
       showModal("✅ Dados atualizados com sucesso!", "success")
     } catch (error) {
       showModal("❌ Não foi possível atualizar os dados.", "error")
-      console.error("Erro ao atualizar perfil:", error)
     }
   }
-  
 
-  const confirmDeleteAccount = () => {
-    if (!currentPassword) {
-      showModal("Digite sua senha atual antes de excluir a conta.", "error")
-      return
-    }
-    setConfirmText("")
-    setConfirmDeleteVisible(true)
-  }
-
-  const handleDeleteAccount = async () => {
-    if (confirmText.trim().toLowerCase() !== "eu confirmo") return
-
-    try {
-      if (!firebaseUser) return
-      const isAuthenticated = await reauthenticateUser()
-      if (!isAuthenticated) return
-
-      await deleteUser(firebaseUser)
-      await deleteDatabase()
-
-      showModal("✅ Conta e dados excluídos com sucesso!", "success")
-      await signOut(auth)
-      router.replace("/")
-    } catch (error) {
-      console.error("Erro ao excluir conta e dados:", error)
-      showModal(
-        "❌ Não foi possível excluir a conta e os dados. Verifique sua conexão e tente novamente mais tarde.",
-        "error"
-      )
-    }
-  }
+  const renderPasswordInput = (label: string, value: string, onChange: (v: string) => void, show: boolean, toggle: () => void, placeholder: string) => (
+    <View style={{ width: "100%", marginBottom: 10 }}>
+      <Text style={styles.label}>{label}</Text>
+      <View style={{ flexDirection: "row", alignItems: "center" }}>
+        <TextInput
+          style={[styles.input, { flex: 1 }]}
+          value={value}
+          onChangeText={onChange}
+          secureTextEntry={!show}
+          placeholder={placeholder}
+        />
+        <TouchableOpacity onPress={toggle} style={{ marginLeft: 8 }}>
+          <Ionicons name={show ? "eye-off" : "eye"} size={24} color={colors.darkGray} />
+        </TouchableOpacity>
+      </View>
+    </View>
+  )
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -198,23 +229,9 @@ const SettingsScreen: React.FC = () => {
         placeholder="E-mail"
       />
 
-      <Text style={styles.label}>Senha Atual</Text>
-      <TextInput
-        style={styles.input}
-        value={currentPassword}
-        onChangeText={setCurrentPassword}
-        secureTextEntry
-        placeholder="Senha Atual"
-      />
+      {renderPasswordInput("Senha Atual", currentPassword, setCurrentPassword, showCurrentPassword, () => setShowCurrentPassword(!showCurrentPassword), "Senha Atual")}
 
-      <Text style={styles.label}>Nova Senha</Text>
-      <TextInput
-        style={styles.input}
-        value={newPassword}
-        onChangeText={setNewPassword}
-        secureTextEntry
-        placeholder="Nova Senha"
-      />
+      {renderPasswordInput("Nova Senha", newPassword, setNewPassword, showNewPassword, () => setShowNewPassword(!showNewPassword), "Nova Senha")}
 
       <TouchableOpacity
         style={styles.generateButton}
@@ -229,14 +246,45 @@ const SettingsScreen: React.FC = () => {
       </TouchableOpacity>
 
       <TouchableOpacity style={styles.button} onPress={handleUpdateProfile}>
-        <Text style={styles.buttonText}>Salvar Alterações</Text>
+        <Text style={styles.buttonTextSaveChanges}>💾 Salvar Alterações</Text>
       </TouchableOpacity>
 
-      <TouchableOpacity style={[styles.button, styles.deleteButton]} onPress={confirmDeleteAccount}>
-        <Text style={[styles.buttonText, styles.deleteButtonText]}>Excluir Conta e Dados</Text>
+      <TouchableOpacity
+        style={[styles.button, { backgroundColor: colors.blue }]}
+        onPress={() => setExtrasVisible(true)}
+      >
+        <Text style={styles.buttonText}>⚙️ Configurações Extras</Text>
       </TouchableOpacity>
 
-      {/* Modal confirmação de exclusão */}
+      <Modal visible={extrasVisible} animationType="slide" transparent>
+        <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "rgba(0,0,0,0.5)" }}>
+          <View style={{ backgroundColor: "white", padding: 20, borderRadius: 10, width: "85%" }}>
+            <TouchableOpacity
+              style={[styles.button, { backgroundColor: requirePasswordToView ? "#D32F2F" : colors.green }]}
+              onPress={toggleRequirePasswordToView}
+            >
+              <Text style={styles.buttonText}>
+                {requirePasswordToView ? "🔓 Desativar Proteção de Visualização" : "🔒 Ativar Proteção de Visualização"}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.button, { backgroundColor: "#D32F2F" }]}
+              onPress={confirmDeleteAccount}
+            >
+              <Text style={styles.buttonText}>🗑 Excluir Conta e Dados</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.button, { backgroundColor: colors.mediumGray }]}
+              onPress={() => setExtrasVisible(false)}
+            >
+              <Text style={styles.buttonText}>✖️ Fechar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       <Modal
         visible={confirmDeleteVisible}
         animationType="slide"
@@ -328,12 +376,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginVertical: 10,
   },
-  deleteButton: {
-    backgroundColor: "#D32F2F",
-  },
-  deleteButtonText: {
-    color: "#fff",
-  },
   generateButton: {
     backgroundColor: colors.blue,
     padding: 12,
@@ -348,6 +390,11 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
   },
   buttonText: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: colors.white,
+  },
+  buttonTextSaveChanges: {
     fontSize: 16,
     fontWeight: "bold",
     color: colors.darkGray,

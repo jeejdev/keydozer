@@ -22,9 +22,8 @@ interface PasswordRow {
   encrypted_password: string
   service_name: string
   username: string | null
-  url: string | null
   category: string | null
-  notes: string | null
+  additional_info: string | null
   created_at: string
   updated_at: string
 }
@@ -51,9 +50,8 @@ export const initDB = async (): Promise<void> => {
       encrypted_password TEXT NOT NULL,
       service_name TEXT NOT NULL,
       username TEXT,
-      url TEXT,
       category TEXT,
-      notes TEXT,
+      additional_info TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -211,21 +209,19 @@ export const addPassword = async (
   encryptedPassword: string,
   serviceName: string,
   username: string,
-  url: string,
   category: string,
-  notes: string
+  additionalInfo: string
 ): Promise<number> => {
   if (!db) await initDB()
   const result = await db.runAsync(
-    `INSERT INTO passwords (user_id, encrypted_password, service_name, username, url, category, notes)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO passwords (user_id, encrypted_password, service_name, username, category, additional_info)
+     VALUES (?, ?, ?, ?, ?, ?)`,
     userId,
     encryptedPassword,
     serviceName,
     username,
-    url,
     category,
-    notes
+    additionalInfo
   )
   return result.lastInsertRowId
 }
@@ -241,9 +237,8 @@ export const getPasswordsByUserId = async (userId: number): Promise<PasswordEntr
         row.encrypted_password,
         row.service_name,
         row.username,
-        row.url,
         row.category,
-        row.notes,
+        row.additional_info,
         row.created_at,
         row.updated_at
       )
@@ -255,21 +250,19 @@ export const updatePasswordById = async (
   encryptedPassword: string,
   serviceName: string,
   username: string,
-  url: string,
   category: string,
-  notes: string
+  additionalInfo: string
 ): Promise<void> => {
   if (!db) await initDB()
   await db.runAsync(
     `UPDATE passwords
-     SET encrypted_password = ?, service_name = ?, username = ?, url = ?, category = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
+     SET encrypted_password = ?, service_name = ?, username = ?, category = ?, additional_info = ?, updated_at = CURRENT_TIMESTAMP
      WHERE id = ?`,
     encryptedPassword,
     serviceName,
     username,
-    url,
     category,
-    notes,
+    additionalInfo,
     id
   )
 }
