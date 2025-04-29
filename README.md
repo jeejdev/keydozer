@@ -25,7 +25,7 @@ O desenvolvimento do projeto foi dividido em **três sprints**, cobrindo os **18
 
 ---
 
-### 🔐 **Sprint 2 - Entrega: 28/04/2025**
+### 🔐 **Sprint 2 - Entrega: 05/05/2025**
 
 | Tarefa                                                                                     | Requisito | Status |
 |--------------------------------------------------------------------------------------------|-----------|--------|
@@ -39,7 +39,7 @@ O desenvolvimento do projeto foi dividido em **três sprints**, cobrindo os **18
 
 ---
 
-### 📊 **Sprint 3 - Entrega: 26/05/2025**
+### 📊 **Sprint 3 - Entrega: 02/06/2025**
 
 | Tarefa                                                                                     | Requisito | Status |
 |--------------------------------------------------------------------------------------------|-----------|--------|
