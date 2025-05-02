@@ -20,6 +20,7 @@ import SettingsScreen from "./(config)/settings"
 import { useAuth } from "../context/AuthContext"
 import PasswordManagerScreen from "./(passwords)/PasswordManagerScreen"
 import { clearDecryptedMasterKey } from "@/utils/secureStore"
+import ExportPasswordsScreen from "./(passwords)/ExportPasswordsScreen"
 
 const Drawer = createDrawerNavigator()
 
@@ -105,7 +106,7 @@ const DrawerNavigator = () => {
       />
       <Drawer.Screen
         name="exportar-senhas"
-        component={HomeScreen}
+        component={ExportPasswordsScreen}
         options={{
           title: "Exportar Senhas",
           drawerIcon: ({ color }) => <Ionicons name="cloud-download" size={24} color={color} />,
