@@ -24,6 +24,7 @@ import User from "../models/User"
 import { loginUser } from "../services/authService"
 import { useAuth } from "../context/AuthContext"
 import { getUserByEmail } from "../services/database"
+import { useLocalSearchParams } from "expo-router";
 
 const LoginScreen: React.FC = () => {
   const router = useRouter()
@@ -38,6 +39,9 @@ const LoginScreen: React.FC = () => {
   const [errorModalVisible, setErrorModalVisible] = useState(false)
   const [errorMessage, setErrorMessage] = useState("")
   const [suggestedUser, setSuggestedUser] = useState<User | null>(null)
+
+  const params = useLocalSearchParams();
+  const isFirstLogin = params.firstLogin === "true";
 
   const showError = (message: string) => {
     setErrorMessage(message)
@@ -99,7 +103,10 @@ const LoginScreen: React.FC = () => {
       }
     }
   }
-  
+
+  if (params.firstLogin === "true" && email && password) {
+    handleLogin();
+  }
 
   const handleBiometricLogin = async () => {
     try {
