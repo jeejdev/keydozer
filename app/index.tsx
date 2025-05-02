@@ -218,6 +218,7 @@ const LoginScreen: React.FC = () => {
                   passwords.forEach((pw, index) => {
                     console.log(`\n  ${index + 1}) Serviço: ${pw.serviceName}`)
                     console.log(`     🆔 ID: ${pw.id}`)
+                    console.log(`     🆔 ID do Usuário: ${pw.userId}`)
                     console.log(`     👤 Username: ${pw.username}`)
                     console.log(`     🗂 Categoria: ${pw.category}`)
                     console.log(`     📝 Notas (criptografadas): ${pw.additionalInfo}`)
