@@ -18,7 +18,6 @@ import { colors } from "../utils/theme"
 import HomeScreen from "./(home)/home"
 import SettingsScreen from "./(config)/settings"
 import { useAuth } from "../context/AuthContext"
-import PasswordListScreen from "./(passwords)/all"
 import PasswordManagerScreen from "./(passwords)/PasswordManagerScreen"
 import { clearDecryptedMasterKey } from "@/utils/secureStore"
 

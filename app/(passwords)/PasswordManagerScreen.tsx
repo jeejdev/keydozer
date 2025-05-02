@@ -10,8 +10,9 @@ import {
   TextInput,
   ScrollView,
   ActivityIndicator,
+  Dimensions,
 } from "react-native"
-import { useFocusEffect } from "@react-navigation/native"
+import { useFocusEffect, useNavigation } from "@react-navigation/native"
 import { useAuth } from "../../context/AuthContext"
 import {
   addPassword,
@@ -28,6 +29,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage"
 import { Ionicons } from '@expo/vector-icons'
 
 const PasswordManagerScreen = () => {
+  const navigation = useNavigation()
   const { localUser } = useAuth()
   const [groupedPasswords, setGroupedPasswords] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -46,6 +48,7 @@ const PasswordManagerScreen = () => {
   const [passwordPromptVisible, setPasswordPromptVisible] = useState(false)
   const [passwordInput, setPasswordInput] = useState("")
   const [showPassword, setShowPassword] = useState(false)
+  const [categoryFilter, setCategoryFilter] = useState<string | null>(null)
 
   const showModal = (message: string, type: string = "info") => {
     setModalMessage(message)
@@ -137,6 +140,11 @@ const PasswordManagerScreen = () => {
     setPasswordInput("")
   }
 
+  const handleCancelPasswordPrompt = () => {
+    setPasswordPromptVisible(false)
+    navigation.goBack()
+  }
+
   const handleSave = async () => {
     if (!serviceName || !password || !localUser) {
       showModal("Preencha todos os campos obrigatórios.", "error")
@@ -204,19 +212,57 @@ const PasswordManagerScreen = () => {
     setModalVisible(true)
   }
 
+  const allCategories = groupedPasswords.map(section => section.title)
+
+  const shouldShowFilters = !loading && canViewPasswords && groupedPasswords.length > 0
+
+  const filteredSections = categoryFilter
+    ? groupedPasswords.filter(section => section.title === categoryFilter)
+    : groupedPasswords
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Minhas Senhas</Text>
 
+      {shouldShowFilters && (
+  <ScrollView
+    horizontal
+    showsHorizontalScrollIndicator={false}
+    style={styles.filterContainer}
+    contentContainerStyle={{ alignItems: 'center' }}
+  >
+    {["Todas", ...allCategories].map((cat, idx) => (
+      <TouchableOpacity
+        key={idx}
+        onPress={() => setCategoryFilter(cat === "Todas" ? null : cat)}
+        style={{
+          paddingVertical: 6,
+          paddingHorizontal: 12,
+          marginRight: 8,
+          borderRadius: 20,
+          backgroundColor:
+            categoryFilter === cat || (cat === "Todas" && !categoryFilter)
+              ? colors.yellow
+              : colors.white,
+          borderWidth: 1,
+          borderColor: colors.mediumGray,
+        }}
+      >
+        <Text style={{ fontWeight: "bold", color: colors.darkGray }}>{cat}</Text>
+      </TouchableOpacity>
+    ))}
+  </ScrollView>
+)}
+
       {loading ? (
         <ActivityIndicator color={colors.darkGray} size="large" />
-      ) : groupedPasswords.length === 0 ? (
+      ) : filteredSections.length === 0 ? (
         <Text style={{ textAlign: "center", marginTop: 32, fontSize: 16, color: colors.mediumGray }}>
           Nenhuma senha criada ainda, crie clicando ali embaixo, ó 👇
         </Text>
       ) : (
         <SectionList
-          sections={groupedPasswords}
+          sections={filteredSections}
           keyExtractor={(item) => `${item.id}`}
           renderItem={({ item }) => (
             <TouchableOpacity
@@ -254,43 +300,71 @@ const PasswordManagerScreen = () => {
       </TouchableOpacity>
 
       <Modal visible={modalVisible} animationType="slide">
-        <ScrollView contentContainerStyle={styles.modalContainer}>
-          <Text style={styles.title}>{isEditing ? "Editar Senha" : "Nova Senha"}</Text>
-          <TextInput style={styles.input} placeholder="🔒 Nome do serviço" value={serviceName} onChangeText={setServiceName} />
-          <View style={{ flexDirection: "row", alignItems: "center" }}>
-            <TextInput
-              style={[styles.input, { flex: 1 }]}
-              placeholder="🔑 Senha"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry={!showPassword}
-            />
-            <TouchableOpacity onPress={() => setShowPassword(prev => !prev)} style={{ marginLeft: 10 }}>
-              <Ionicons name={showPassword ? "eye-off" : "eye"} size={24} color={colors.darkGray} />
-            </TouchableOpacity>
-          </View>
-          <TextInput style={styles.input} placeholder="👤 Nome de usuário" value={username} onChangeText={setUsername} />
-          <TextInput style={styles.input} placeholder="🗂 Categoria" value={category} onChangeText={setCategory} />
-          <TextInput style={[styles.input, { height: 80 }]} placeholder="📝 Informações adicionais" multiline value={additionalInfo} onChangeText={setAdditionalInfo} />
+  <ScrollView contentContainerStyle={styles.modalContainer}>
+    <Text style={styles.title}>{isEditing ? "Editar Senha" : "Nova Senha"}</Text>
 
-          <TouchableOpacity style={styles.button} onPress={handleSave}>
-            <Text style={styles.buttonText}>Salvar</Text>
-          </TouchableOpacity>
+    <View style={{ marginBottom: 10 }}>
+      <Text style={{ marginBottom: 4 }}>🔒 Nome do serviço</Text>
+      <TextInput style={styles.input} value={serviceName} onChangeText={setServiceName} />
+    </View>
 
-          <TouchableOpacity style={[styles.button, { backgroundColor: colors.mediumGray }]} onPress={() => setModalVisible(false)}>
-            <Text style={styles.buttonText}>Cancelar</Text>
-          </TouchableOpacity>
+    <View style={{ marginBottom: 10 }}>
+      <Text style={{ marginBottom: 4 }}>🔑 Senha</Text>
+      <View style={{ flexDirection: "row", alignItems: "center" }}>
+        <TextInput
+          style={[styles.input, { flex: 1 }]}
+          value={password}
+          onChangeText={setPassword}
+          secureTextEntry={!showPassword}
+        />
+        <TouchableOpacity onPress={() => setShowPassword(prev => !prev)} style={{ marginLeft: 10 }}>
+          <Ionicons name={showPassword ? "eye-off" : "eye"} size={24} color={colors.darkGray} />
+        </TouchableOpacity>
+      </View>
+    </View>
 
-          {isEditing && selectedId !== null && (
-            <TouchableOpacity
-              style={[styles.button, { backgroundColor: "#D32F2F" }]}
-              onPress={() => handleDelete(selectedId)}
-            >
-              <Text style={[styles.buttonText, { color: "#fff" }]}>Excluir</Text>
-            </TouchableOpacity>
-          )}
-        </ScrollView>
-      </Modal>
+    <View style={{ marginBottom: 10 }}>
+      <Text style={{ marginBottom: 4 }}>👤 Nome de usuário</Text>
+      <TextInput style={styles.input} value={username} onChangeText={setUsername} />
+    </View>
+
+    <View style={{ marginBottom: 10 }}>
+      <Text style={{ marginBottom: 4 }}>🗂 Categoria</Text>
+      <TextInput style={styles.input} value={category} onChangeText={setCategory} />
+    </View>
+
+    <View style={{ marginBottom: 10 }}>
+      <Text style={{ marginBottom: 4 }}>📝 Informações adicionais</Text>
+      <TextInput
+        style={[styles.input, { height: 80 }]}
+        multiline
+        value={additionalInfo}
+        onChangeText={setAdditionalInfo}
+      />
+    </View>
+
+    <TouchableOpacity style={styles.button} onPress={handleSave}>
+      <Text style={styles.buttonText}>Salvar</Text>
+    </TouchableOpacity>
+
+    <TouchableOpacity
+      style={[styles.button, { backgroundColor: colors.mediumGray }]}
+      onPress={() => setModalVisible(false)}
+    >
+      <Text style={styles.buttonText}>Cancelar</Text>
+    </TouchableOpacity>
+
+    {isEditing && selectedId !== null && (
+      <TouchableOpacity
+        style={[styles.button, { backgroundColor: "#D32F2F" }]}
+        onPress={() => handleDelete(selectedId)}
+      >
+        <Text style={[styles.buttonText, { color: "#fff" }]}>Excluir</Text>
+      </TouchableOpacity>
+    )}
+  </ScrollView>
+</Modal>
+
 
       <Modal visible={passwordPromptVisible} animationType="fade" transparent>
         <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "rgba(0,0,0,0.5)" }}>
@@ -310,6 +384,11 @@ const PasswordManagerScreen = () => {
             />
             <TouchableOpacity style={[styles.button, { marginTop: 10 }]} onPress={confirmPasswordView}>
               <Text style={styles.buttonText}>Confirmar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.button, { backgroundColor: "#D32F2F", marginTop: 10 }]} onPress={handleCancelPasswordPrompt}
+            >
+              <Text style={{ color: "#fff", fontWeight: "bold" }}>Cancelar</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -402,6 +481,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     marginBottom: 10,
   },
+  filterContainer: {
+    maxHeight: Dimensions.get('window').height * 0.1,
+    marginBottom: 10,
+  },  
 })
 
 export default PasswordManagerScreen
