@@ -8,13 +8,16 @@ import {
   Image,
   StyleSheet,
 } from "react-native"
-import { useRouter } from "expo-router"
+import { useRouter, useLocalSearchParams } from "expo-router"
+import { MaterialIcons } from "@expo/vector-icons"
+
 import {
   getAllUsers,
   getLastUser,
   initDB,
   deleteDatabase,
   getPasswordsByUserId,
+  getUserByEmail,
 } from "../services/database"
 import * as FileSystem from "expo-file-system"
 import * as LocalAuthentication from "expo-local-authentication"
@@ -23,8 +26,6 @@ import ErrorModal from "../components/ErrorModal"
 import User from "../models/User"
 import { loginUser } from "../services/authService"
 import { useAuth } from "../context/AuthContext"
-import { getUserByEmail } from "../services/database"
-import { useLocalSearchParams } from "expo-router";
 
 const LoginScreen: React.FC = () => {
   const router = useRouter()
@@ -33,8 +34,9 @@ const LoginScreen: React.FC = () => {
   const DEV_EMAIL = "novaconta@gmail.com"
   const DEV_PASSWORD = "*K(Yg*A<;Fy*8.^6"
 
-  const [email, setEmail] = useState(DEV_EMAIL)
-  const [password, setPassword] = useState(DEV_PASSWORD)
+  const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
+  const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [errorModalVisible, setErrorModalVisible] = useState(false)
   const [errorMessage, setErrorMessage] = useState("")
@@ -54,14 +56,10 @@ const LoginScreen: React.FC = () => {
         const dbPath = FileSystem.documentDirectory + "SQLite/keydozer.db"
         const fileInfo = await FileSystem.getInfoAsync(dbPath)
 
-        if (!fileInfo.exists) {
-          await initDB()
-        }
+        if (!fileInfo.exists) await initDB()
 
         const localUser = await getLastUser()
-        if (localUser) {
-          setSuggestedUser(localUser)
-        }
+        if (localUser) setSuggestedUser(localUser)
       } catch (error) {
         showError("Erro ao inicializar o app.")
         console.error("Erro no init:", error)
@@ -75,19 +73,17 @@ const LoginScreen: React.FC = () => {
 
   const handleLogin = async () => {
     if (isLoading) return
-  
     try {
       await loginUser(email, password)
-  
-      // 🔍 Busca o usuário local após login
+
       const local = await getUserByEmail(email)
       if (local) {
-        setLocalUser(local) // salva no contexto
+        setLocalUser(local)
         console.log("🧠 localUser definido no contexto:", local)
       } else {
         console.warn("⚠️ Usuário não encontrado no SQLite")
       }
-  
+
       router.replace("/home")
     } catch (error: any) {
       console.error("Erro no login:", error)
@@ -104,15 +100,12 @@ const LoginScreen: React.FC = () => {
     }
   }
 
-  if (params.firstLogin === "true" && email && password) {
-    handleLogin();
-  }
+  if (isFirstLogin && email && password) handleLogin()
 
   const handleBiometricLogin = async () => {
     try {
       const compatible = await LocalAuthentication.hasHardwareAsync()
       const enrolled = await LocalAuthentication.isEnrolledAsync()
-
       if (!compatible || !enrolled) {
         showError("Seu dispositivo não suporta biometria.")
         return
@@ -123,9 +116,15 @@ const LoginScreen: React.FC = () => {
         fallbackLabel: "Usar senha",
       })
 
-      if (result.success && suggestedUser) {
-        setLocalUser(suggestedUser)
-        router.replace("/home")
+      if (result.success) {
+        const localUser = await getLastUser()
+        if (localUser) {
+          setLocalUser(localUser)
+          console.log("🔐 localUser definido via biometria:", localUser)
+          router.replace("/home")
+        } else {
+          showError("Usuário local não encontrado após autenticação.")
+        }
       }
     } catch (error) {
       console.error("Erro biometria:", error)
@@ -139,6 +138,11 @@ const LoginScreen: React.FC = () => {
     } catch (err) {
       console.error("Erro ao excluir banco local:", err)
     }
+  }
+
+  const autofillTestAccount = () => {
+    setEmail(DEV_EMAIL)
+    setPassword(DEV_PASSWORD)
   }
 
   if (isLoading) {
@@ -175,64 +179,75 @@ const LoginScreen: React.FC = () => {
             keyboardType="email-address"
             autoCapitalize="none"
           />
-          <TextInput
-            style={styles.input}
-            placeholder="Senha"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-          />
+
+          <View style={styles.passwordContainer}>
+            <TextInput
+              style={styles.passwordInput}
+              placeholder="Senha"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry={!showPassword}
+              autoCapitalize="none"
+            />
+            <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
+              <MaterialIcons
+                name={showPassword ? "visibility-off" : "visibility"}
+                size={24}
+                color={colors.mediumGray}
+              />
+            </TouchableOpacity>
+          </View>
 
           <TouchableOpacity style={styles.button} onPress={handleLogin}>
             <Text style={styles.buttonText}>Entrar</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity onPress={() => router.push("/register")}>
+          <TouchableOpacity style={[styles.button, { backgroundColor: colors.green }]} onPress={autofillTestAccount}>
+            <Text style={styles.buttonText}>[DEV] Preencher Conta de Teste</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity onPress={() => router.push("/register")}>            
             <Text style={styles.link}>Não tem uma conta? Criar conta</Text>
           </TouchableOpacity>
 
           {process.env.EXPO_PUBLIC_DEVELOPMENT_MODE === "True" && (
             <>
+              <TouchableOpacity
+                style={[styles.button, { backgroundColor: colors.blue }]}
+                onPress={async () => {
+                  const allUsers = await getAllUsers()
+                  console.log("🔍 ==== USUÁRIOS DO SQLITE ====\n")
 
-          <TouchableOpacity
-            style={[styles.button, { backgroundColor: colors.blue }]}
-            onPress={async () => {
-              const allUsers = await getAllUsers()
-              console.log("🔍 ==== USUÁRIOS DO SQLITE ====")
+                  for (const user of allUsers) {
+                    console.log(`👤 Nome: ${user.name}`)
+                    console.log(`📧 Email: ${user.email}`)
+                    console.log(`🆔 ID: ${user.id}`)
+                    console.log(`🔐 MasterKey Criptografada: ${user.encryptedMasterKey}`)
+                    console.log(`💡 Dica de senha: ${user.passwordHint || "Nenhuma"}`)
+                    console.log(`📅 Criado em: ${user.createdAt}`)
+                    console.log("---------------------------")
 
-              for (const user of allUsers) {
-                console.log(`👤 Nome: ${user.name}`)
-                console.log(`📧 Email: ${user.email}`)
-                console.log(`🆔 ID: ${user.id}`)
-                console.log(`🔐 MasterKey Criptografada: ${user.encryptedMasterKey}`)
-                console.log(`💡 Dica de senha: ${user.passwordHint || "Nenhuma"}`)
-                console.log(`📅 Criado em: ${user.createdAt}`)
-                console.log(`---------------------------`)
-
-                const passwords = await getPasswordsByUserId(user.id)
-
-                if (passwords.length === 0) {
-                  console.log("🔓 Nenhuma senha cadastrada.\n")
-                } else {
-                  console.log(`🔐 Senhas cadastradas:`)
-                  passwords.forEach((pw, index) => {
-                    console.log(`\n  ${index + 1}) Serviço: ${pw.serviceName}`)
-                    console.log(`     🆔 ID: ${pw.id}`)
-                    console.log(`     🆔 ID do Usuário: ${pw.userId}`)
-                    console.log(`     👤 Username: ${pw.username}`)
-                    console.log(`     🗂 Categoria: ${pw.category}`)
-                    console.log(`     📝 Notas (criptografadas): ${pw.additionalInfo}`)
-                    console.log(`     🔑 Senha (criptografada): ${pw.encryptedPassword}`)
-                    console.log(`     📅 Criado em: ${pw.createdAt}`)
-                    console.log(`     🕒 Atualizado em: ${pw.updatedAt}`)
-                  })
-                  console.log("\n==============================\n")
-                }
-              }
-            }}
-          >
-            <Text style={styles.buttonText}>[DEV] Ver Banco Local</Text>
-          </TouchableOpacity>
+                    const passwords = await getPasswordsByUserId(user.id)
+                    if (passwords.length === 0) {
+                      console.log("🔓 Nenhuma senha cadastrada.\n")
+                      console.log("==============================================")
+                    } else {
+                      console.log(`🔐 Senhas cadastradas:`)
+                      passwords.forEach((pw, index) => {
+                        console.log(`\n  ${index + 1}) Serviço: ${pw.serviceName}`)
+                        console.log(`     🆔 ID: ${pw.id}`)
+                        console.log(`     👤 Username: ${pw.username}`)
+                        console.log(`     🗂 Categoria: ${pw.category}`)
+                        console.log(`     📝 Notas: ${pw.additionalInfo}`)
+                        console.log(`     🔑 Senha: ${pw.encryptedPassword}`)
+                      })
+                      console.log("\n==============================\n")
+                    }
+                  }
+                }}
+              >
+                <Text style={styles.buttonText}>[DEV] Ver Banco Local</Text>
+              </TouchableOpacity>
 
               <TouchableOpacity
                 style={[styles.button, { backgroundColor: "#D32F2F" }]}
@@ -284,6 +299,21 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: 10,
     backgroundColor: "#fff",
+  },
+  passwordContainer: {
+    width: "90%",
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: colors.mediumGray,
+    borderRadius: 8,
+    marginBottom: 10,
+    backgroundColor: "#fff",
+    paddingHorizontal: 12,
+  },
+  passwordInput: {
+    flex: 1,
+    paddingVertical: 12,
   },
   button: {
     backgroundColor: colors.yellow,

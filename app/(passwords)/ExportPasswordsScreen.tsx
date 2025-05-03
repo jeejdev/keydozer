@@ -4,10 +4,10 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  Alert,
-  Modal,
   TextInput,
   Image,
+  Modal,
+  Alert,
 } from "react-native"
 import * as FileSystem from "expo-file-system"
 import * as Sharing from "expo-sharing"
@@ -29,12 +29,16 @@ import {
   encryptData,
 } from "@/utils/encryption"
 import { colors } from "@/utils/theme"
+import ErrorModal from "@/components/ErrorModal"
 
 const ExportPasswordsScreen: React.FC = () => {
   const { localUser } = useAuth()
   const [masterKey, setMasterKey] = useState<string | null>(null)
   const [passwordPromptVisible, setPasswordPromptVisible] = useState(false)
   const [passwordInput, setPasswordInput] = useState("")
+  const [infoModalVisible, setInfoModalVisible] = useState(false)
+  const [errorModalVisible, setErrorModalVisible] = useState(false)
+  const [errorMessage, setErrorMessage] = useState("")
 
   const tryGetMasterKey = async (): Promise<string | null> => {
     if (!localUser) return null
@@ -50,14 +54,15 @@ const ExportPasswordsScreen: React.FC = () => {
       passwordInput
     )
     if (!decrypted) {
-      Alert.alert("Erro", "Senha incorreta para descriptografar a chave mestra.")
+      setErrorMessage("Senha incorreta para descriptografar a chave mestra.")
+      setErrorModalVisible(true)
       return
     }
     setMasterKey(decrypted)
     saveDecryptedMasterKey(decrypted)
     setPasswordPromptVisible(false)
     setPasswordInput("")
-    Alert.alert("✅", "Chave mestra desbloqueada!")
+    setInfoModalVisible(true)
   }
 
   const exportPasswords = async (): Promise<string | null> => {
@@ -69,7 +74,7 @@ const ExportPasswordsScreen: React.FC = () => {
     }
 
     const passwords = await getPasswordsByUserId(localUser.id)
-    const payload = passwords.map(p => ({
+    const payload = passwords.map((p: any) => ({
       servico: p.serviceName,
       usuario: p.username,
       senha: p.encryptedPassword,
@@ -90,29 +95,32 @@ const ExportPasswordsScreen: React.FC = () => {
   const handleSave = async () => {
     const uri = await exportPasswords()
     if (!uri) return
-  
+
     try {
       const permissions = await StorageAccessFramework.StorageAccessFramework.requestDirectoryPermissionsAsync()
       if (!permissions.granted) {
-        Alert.alert("Permissão negada", "Você precisa permitir o acesso à pasta.")
+        setErrorMessage("Você precisa permitir o acesso à pasta.")
+        setErrorModalVisible(true)
         return
       }
-  
+
       const fileUri = await StorageAccessFramework.StorageAccessFramework.createFileAsync(
         permissions.directoryUri,
         "senhas_exportadas",
         "application/json"
       )
-  
+
       const content = await FileSystem.readAsStringAsync(uri)
       await FileSystem.writeAsStringAsync(fileUri, content, {
         encoding: FileSystem.EncodingType.UTF8,
       })
-  
-      Alert.alert("Sucesso", "Arquivo exportado com sucesso!")
+
+      setErrorMessage("Arquivo exportado com sucesso!")
+      setErrorModalVisible(true)
     } catch (err) {
       console.error("Erro ao salvar com SAF:", err)
-      Alert.alert("Erro", "Falha ao exportar o arquivo.")
+      setErrorMessage("Falha ao exportar o arquivo.")
+      setErrorModalVisible(true)
     }
   }
 
@@ -144,7 +152,7 @@ const ExportPasswordsScreen: React.FC = () => {
       const parsed = JSON.parse(decrypted)
 
       const current = await getPasswordsByUserId(localUser.id)
-      const duplicates = parsed.filter(p =>
+      const duplicates = parsed.filter((p: any) =>
         current.some(c =>
           c.serviceName === p.servico &&
           c.username === p.usuario &&
@@ -152,7 +160,7 @@ const ExportPasswordsScreen: React.FC = () => {
         )
       )
 
-      const newEntries = parsed.filter(p => !duplicates.includes(p))
+      const newEntries = parsed.filter((p: any) => !duplicates.includes(p))
 
       Alert.alert(
         "Importar Senhas",
@@ -169,8 +177,15 @@ const ExportPasswordsScreen: React.FC = () => {
           { text: "Cancelar", style: "cancel" },
         ]
       )
-    } catch (err) {
-      Alert.alert("Erro", "Falha ao importar o arquivo.")
+    } catch (err: any) {
+      console.error("Erro ao importar:", err)
+      const isMalformed = err.message?.toLowerCase().includes("utf-8") || err.message?.includes("JSON Parse")
+      if (isMalformed) {
+        setErrorMessage("Você tentou importar um JSON que não foi criado por você, ou com uma senha desatualizada.")
+      } else {
+        setErrorMessage("Falha ao importar o arquivo.")
+      }
+      setErrorModalVisible(true)
     }
   }
 
@@ -208,6 +223,20 @@ const ExportPasswordsScreen: React.FC = () => {
       <TouchableOpacity style={styles.buttonSecondary} onPress={handleImport}>
         <Text style={styles.buttonText}>📥 Importar</Text>
       </TouchableOpacity>
+
+      <ErrorModal
+        visible={infoModalVisible}
+        type="info"
+        message="Chave mestra desbloqueada. Agora você pode repetir a ação desejada (compartilhar, salvar ou importar)."
+        onClose={() => setInfoModalVisible(false)}
+      />
+
+      <ErrorModal
+        visible={errorModalVisible}
+        type="error"
+        message={errorMessage}
+        onClose={() => setErrorModalVisible(false)}
+      />
 
       <Modal visible={passwordPromptVisible} animationType="fade" transparent>
         <View style={styles.modalOverlay}>
