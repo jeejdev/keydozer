@@ -22,6 +22,7 @@ import PasswordManagerScreen from "./(passwords)/PasswordManagerScreen"
 import { clearDecryptedMasterKey } from "@/utils/secureStore"
 import ExportPasswordsScreen from "./(passwords)/ExportPasswordsScreen"
 import ScanQRCodeScreen from "./(passwords)/ScanQRCodeScreen"
+import SecurityReportScreen from "./(passwords)/SecurityReportScreen"
 
 const Drawer = createDrawerNavigator()
 
@@ -97,12 +98,20 @@ const DrawerNavigator = () => {
           drawerIcon: ({ color }) => <Ionicons name="lock-closed" size={24} color={color} />,
         }}
       />
-      <Drawer.Screen
+{/*       <Drawer.Screen
         name="gerar-senha"
         component={HomeScreen}
         options={{
           title: "Gerar Senha",
           drawerIcon: ({ color }) => <Ionicons name="key" size={24} color={color} />,
+        }}
+      /> */}
+      <Drawer.Screen
+        name="relatorios-seguranca"
+        component={SecurityReportScreen}
+        options={{
+          title: "Relatórios de Segurança",
+          drawerIcon: ({ color }) => <Ionicons name="bar-chart-outline" size={24} color={color} />,
         }}
       />
       <Drawer.Screen
@@ -114,14 +123,6 @@ const DrawerNavigator = () => {
         }}
       />
       <Drawer.Screen
-        name="settings"
-        component={SettingsScreen}
-        options={{
-          title: "Configurações",
-          drawerIcon: ({ color }) => <Ionicons name="settings" size={24} color={color} />,
-        }}
-        />
-        <Drawer.Screen
         name="escanear-qr"
         component={ScanQRCodeScreen}
         options={{
@@ -129,6 +130,14 @@ const DrawerNavigator = () => {
           drawerIcon: ({ color }) => <Ionicons name="qr-code-outline" size={24} color={color} />,
         }}
       />
+      <Drawer.Screen
+        name="settings"
+        component={SettingsScreen}
+        options={{
+          title: "Configurações",
+          drawerIcon: ({ color }) => <Ionicons name="settings" size={24} color={color} />,
+        }}
+        />
     </Drawer.Navigator>
   )
 }

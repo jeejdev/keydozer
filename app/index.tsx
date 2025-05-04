@@ -91,9 +91,8 @@ const LoginScreen: React.FC = () => {
       router.replace("/home")
     } catch (error: any) {
       console.error("Erro no login:", error)
-      if (error.code === "auth/invalid-email") {
-        showError("E-mail inválido.")
-      } else if (
+      if (
+        error.code === "auth/invalid-credential" ||
         error.code === "auth/user-not-found" ||
         error.code === "auth/wrong-password"
       ) {
@@ -102,6 +101,7 @@ const LoginScreen: React.FC = () => {
         showError("Erro ao fazer login. Tente novamente mais tarde.")
       }
     }
+    
   }
 
   if (isFirstLogin && email && password) handleLogin()
