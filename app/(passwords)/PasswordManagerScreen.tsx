@@ -11,6 +11,7 @@ import {
   ScrollView,
   ActivityIndicator,
   Dimensions,
+  ToastAndroid
 } from "react-native"
 import { useFocusEffect, useNavigation } from "@react-navigation/native"
 import { useAuth } from "../../context/AuthContext"
@@ -21,12 +22,13 @@ import {
   updatePasswordById,
 } from "../../services/database"
 import { decryptData, encryptData } from "../../utils/encryption"
-import { copyToClipboard } from "../../utils/passwordUtils"
+import { copyToClipboard, checkPasswordStrength } from "../../utils/passwordUtils"
 import { colors } from "../../utils/theme"
 import ErrorModal from "../../components/ErrorModal"
 import { auth, EmailAuthProvider, reauthenticateWithCredential } from "@/services/firebaseConfig"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { Ionicons } from '@expo/vector-icons'
+import QRCode from 'react-native-qrcode-svg'
 
 const PasswordManagerScreen = () => {
   const navigation = useNavigation()
@@ -49,6 +51,9 @@ const PasswordManagerScreen = () => {
   const [passwordInput, setPasswordInput] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null)
+  const [qrData, setQrData] = useState<string | null>(null)
+  const [qrModalVisible, setQrModalVisible] = useState(false)
+  const [weakPasswordInfo, setWeakPasswordInfo] = useState<{service: string, reasons: string[]} | null>(null)
 
   const showModal = (message: string, type: string = "info") => {
     setModalMessage(message)
@@ -201,6 +206,18 @@ const PasswordManagerScreen = () => {
     ])
   }
 
+  const generateQRData = (item: any) => {
+    const payload = JSON.stringify({
+      serviceName: item.serviceName,
+      password: item.decryptedPassword,
+      username: item.username,
+      category: item.category,
+      additionalInfo: item.decryptedadditionalInfo,
+    })
+    setQrData(payload)
+    setQrModalVisible(true)
+  }
+
   const handleEdit = (item: any) => {
     setIsEditing(true)
     setSelectedId(item.id)
@@ -225,34 +242,43 @@ const PasswordManagerScreen = () => {
       <Text style={styles.title}>Minhas Senhas</Text>
 
       {shouldShowFilters && (
-  <ScrollView
-    horizontal
-    showsHorizontalScrollIndicator={false}
-    style={styles.filterContainer}
-    contentContainerStyle={{ alignItems: 'center' }}
-  >
-    {["Todas", ...allCategories].map((cat, idx) => (
-      <TouchableOpacity
-        key={idx}
-        onPress={() => setCategoryFilter(cat === "Todas" ? null : cat)}
-        style={{
-          paddingVertical: 6,
-          paddingHorizontal: 12,
-          marginRight: 8,
-          borderRadius: 20,
-          backgroundColor:
-            categoryFilter === cat || (cat === "Todas" && !categoryFilter)
-              ? colors.yellow
-              : colors.white,
-          borderWidth: 1,
-          borderColor: colors.mediumGray,
-        }}
-      >
-        <Text style={{ fontWeight: "bold", color: colors.darkGray }}>{cat}</Text>
-      </TouchableOpacity>
-    ))}
-  </ScrollView>
-)}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.filterContainer}
+          contentContainerStyle={{ alignItems: 'center' }}
+        >
+          {["Todas", ...allCategories].map((cat, idx) => (
+            <TouchableOpacity
+              key={idx}
+              onPress={() => setCategoryFilter(cat === "Todas" ? null : cat)}
+              style={{
+                paddingVertical: 6,
+                paddingHorizontal: 12,
+                marginRight: 8,
+                borderRadius: 20,
+                backgroundColor:
+                  categoryFilter === cat || (cat === "Todas" && !categoryFilter)
+                    ? colors.yellow
+                    : colors.white,
+                borderWidth: 1,
+                borderColor: colors.mediumGray,
+              }}
+            >
+              <Text style={{ fontWeight: "bold", color: colors.darkGray }}>{cat}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      )}
+
+       <Modal visible={qrModalVisible} animationType="slide">
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+          {qrData && <QRCode value={qrData} size={250} />}
+          <TouchableOpacity style={styles.button} onPress={() => setQrModalVisible(false)}>
+            <Text style={styles.buttonText}>Fechar</Text>
+          </TouchableOpacity>
+        </View>
+      </Modal>
 
       {loading ? (
         <ActivityIndicator color={colors.darkGray} size="large" />
@@ -272,24 +298,57 @@ const PasswordManagerScreen = () => {
             >
               <Text style={styles.cardTitle}>{item.serviceName}</Text>
               <Text style={styles.cardSubtitle}>👤 {item.username || "-"}</Text>
-              <View style={styles.passwordRow}>
-                <Text style={styles.cardSubtitle}>
-                  🔑 {canViewPasswords ? item.decryptedPassword : "******"}
-                </Text>
-                <TouchableOpacity onPress={() => canViewPasswords && copyToClipboard(item.decryptedPassword)}>
-                  <Text style={styles.copy}>📋</Text>
-                </TouchableOpacity>
-              </View>
+              <Text style={styles.cardSubtitle}>
+                🔑 {canViewPasswords ? item.decryptedPassword : "******"}
+              </Text>
               <Text style={styles.cardSubtitle}>
                 📝 {canViewPasswords ? item.decryptedadditionalInfo || "-" : "******"}
               </Text>
+          
+              {canViewPasswords && (
+                <View style={styles.actionButtons}>
+                  {/* WARNING */}
+                  {!checkPasswordStrength(item.decryptedPassword).isValid && (
+                    <TouchableOpacity
+                      onPress={() => {
+                        const { requirements } = checkPasswordStrength(item.decryptedPassword)
+                        const failed = requirements.filter(r => !r.met).map(r => r.label)
+                        setWeakPasswordInfo({ service: item.serviceName, reasons: failed })
+                      }}
+                      style={styles.iconButton}
+                    >
+                      <Ionicons name="warning" size={26} color="#FFA000" />
+                    </TouchableOpacity>
+                  )}
+                  
+                  <TouchableOpacity
+                    onPress={() => {
+                      copyToClipboard(item.decryptedPassword)
+                      ToastAndroid.show("Senha copiada!", ToastAndroid.SHORT)
+                    }}
+                    style={styles.iconButton}
+                  >
+                    <Ionicons name="copy" size={26} color={colors.darkGray} />
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity
+                    onPress={() => generateQRData(item)}
+                    style={styles.iconButton}
+                  >
+                    <Ionicons name="qr-code" size={26} color={colors.darkGray} />
+                  </TouchableOpacity>
+                </View>
+              )}
+
             </TouchableOpacity>
           )}
+          
           renderSectionHeader={({ section: { title } }) => (
             <Text style={styles.sectionHeader}>{title}</Text>
           )}
         />
       )}
+
 
       <TouchableOpacity style={styles.button} onPress={() => {
         resetForm()
@@ -394,6 +453,25 @@ const PasswordManagerScreen = () => {
         </View>
       </Modal>
 
+      <Modal visible={!!weakPasswordInfo} transparent animationType="slide">
+          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: "rgba(0,0,0,0.5)" }}>
+            <View style={{ backgroundColor: "#fff", padding: 20, borderRadius: 10, width: "85%" }}>
+              <Text style={{ fontSize: 18, fontWeight: "bold", marginBottom: 10 }}>
+                ⚠ Senha fraca detectada
+              </Text>
+              <Text style={{ marginBottom: 10 }}>
+                A senha de <Text style={{ fontWeight: "bold" }}>{weakPasswordInfo?.service}</Text> apresenta os seguintes problemas:
+              </Text>
+              {weakPasswordInfo?.reasons.map((reason, idx) => (
+                <Text key={idx}>• {reason}</Text>
+              ))}
+              <TouchableOpacity style={[styles.button, { marginTop: 20 }]} onPress={() => setWeakPasswordInfo(null)}>
+                <Text style={styles.buttonText}>Entendi</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+      </Modal>
+
       <ErrorModal
         visible={errorVisible}
         message={modalMessage}
@@ -433,9 +511,11 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
     borderRadius: 8,
     padding: 12,
+    paddingBottom: 56,
     marginVertical: 6,
     borderWidth: 1,
     borderColor: colors.mediumGray,
+    position: 'relative',
   },
   cardTitle: {
     fontSize: 16,
@@ -484,7 +564,20 @@ const styles = StyleSheet.create({
   filterContainer: {
     maxHeight: Dimensions.get('window').height * 0.1,
     marginBottom: 10,
-  },  
+  },
+  actionButtons: {
+    position: 'absolute',
+    bottom: 10,
+    right: 10,
+    flexDirection: 'row',
+  },
+  
+  iconButton: {
+    backgroundColor: colors.lightGray,
+    padding: 10,
+    borderRadius: 8,
+    marginLeft: 8,
+  },
 })
 
 export default PasswordManagerScreen

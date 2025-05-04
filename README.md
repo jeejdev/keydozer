@@ -29,13 +29,13 @@ O desenvolvimento do projeto foi dividido em **três sprints**, cobrindo os **18
 
 | Tarefa                                                                                     | Requisito | Status |
 |--------------------------------------------------------------------------------------------|-----------|--------|
-| Implementar categorias para organização de senhas                                          | 7         | 🔜     |
-| Criar funcionalidade de exportação segura de senhas                                        | 6         | 🔜     |
-| Gerar QR Codes para facilitar o acesso às senhas                                           | 8         | 🔜     |
-| Implementar a recuperação de senhas por perguntas de segurança ou e-mail                  | 9         | 🔜     |
-| Detectar senhas fracas e sugerir alterações                                                | 10        | 🔜     |
-| Sincronização de senhas entre dispositivos via nuvem                                       | 11        | 🔜     |
-| Compartilhamento seguro de senhas entre usuários                                           | 12        | 🔜     |
+| Implementar categorias para organização de senhas                                          | 7         | ✅     |
+| Criar funcionalidade de exportação segura de senhas                                        | 6         | ✅     |
+| Gerar QR Codes para facilitar o acesso às senhas                                           | 8         | ✅     |
+| Implementar a recuperação de senhas por perguntas de segurança ou e-mail                   | 9         | 🔜     |
+| Detectar senhas fracas e sugerir alterações                                                | 10        | ✅     |
+| Permitir escaneamento de QR Codes para ler senha de outros usuários                        | 13        | ✅     |
+| Armazenamento de notas seguras junto com as senhas                                         | 14        | ✅     |
 
 ---
 
@@ -43,11 +43,11 @@ O desenvolvimento do projeto foi dividido em **três sprints**, cobrindo os **18
 
 | Tarefa                                                                                     | Requisito | Status |
 |--------------------------------------------------------------------------------------------|-----------|--------|
-| Permitir escaneamento de QR Codes para recuperar senhas                                    | 13        | 🔜     |
-| Armazenamento de notas seguras junto com as senhas                                         | 14        | 🔜     |
 | Implementar alertas de segurança ao detectar redes Wi-Fi públicas                          | 15        | 🔜     |
 | Gerar relatórios de segurança de senhas                                                    | 16        | 🔜     |
 | Adicionar suporte para autenticação de dois fatores (2FA)                                  | 17        | 🔜     |
+| Compartilhamento seguro de senhas entre usuários                                           | 12        | 🔜     |
+| Sincronização de senhas entre dispositivos via nuvem                                       | 11        | 🔜     |
 | Melhorias gerais na interface e experiência do usuário (UX/UI)                             | -         | 🔜     |
 
 ---

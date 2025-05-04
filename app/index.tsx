@@ -10,10 +10,10 @@ import {
 } from "react-native"
 import { useRouter, useLocalSearchParams } from "expo-router"
 import { MaterialIcons } from "@expo/vector-icons"
+import AsyncStorage from "@react-native-async-storage/async-storage"
 
 import {
   getAllUsers,
-  getLastUser,
   initDB,
   deleteDatabase,
   getPasswordsByUserId,
@@ -58,8 +58,11 @@ const LoginScreen: React.FC = () => {
 
         if (!fileInfo.exists) await initDB()
 
-        const localUser = await getLastUser()
-        if (localUser) setSuggestedUser(localUser)
+        const lastEmail = await AsyncStorage.getItem("lastLoggedInEmail")
+        if (lastEmail) {
+          const user = await getUserByEmail(lastEmail)
+          if (user) setSuggestedUser(user)
+        }
       } catch (error) {
         showError("Erro ao inicializar o app.")
         console.error("Erro no init:", error)
@@ -79,6 +82,7 @@ const LoginScreen: React.FC = () => {
       const local = await getUserByEmail(email)
       if (local) {
         setLocalUser(local)
+        await AsyncStorage.setItem("lastLoggedInEmail", email)
         console.log("🧠 localUser definido no contexto:", local)
       } else {
         console.warn("⚠️ Usuário não encontrado no SQLite")
@@ -117,14 +121,16 @@ const LoginScreen: React.FC = () => {
       })
 
       if (result.success) {
-        const localUser = await getLastUser()
-        if (localUser) {
-          setLocalUser(localUser)
-          console.log("🔐 localUser definido via biometria:", localUser)
-          router.replace("/home")
-        } else {
-          showError("Usuário local não encontrado após autenticação.")
+        const lastEmail = await AsyncStorage.getItem("lastLoggedInEmail")
+        if (lastEmail) {
+          const localUser = await getUserByEmail(lastEmail)
+          if (localUser) {
+            setLocalUser(localUser)
+            router.replace("/home")
+            return
+          }
         }
+        showError("Usuário local não encontrado após autenticação.")
       }
     } catch (error) {
       console.error("Erro biometria:", error)
@@ -202,16 +208,16 @@ const LoginScreen: React.FC = () => {
             <Text style={styles.buttonText}>Entrar</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={[styles.button, { backgroundColor: colors.green }]} onPress={autofillTestAccount}>
-            <Text style={styles.buttonText}>[DEV] Preencher Conta de Teste</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity onPress={() => router.push("/register")}>            
+          <TouchableOpacity onPress={() => router.push("/register")}>
             <Text style={styles.link}>Não tem uma conta? Criar conta</Text>
           </TouchableOpacity>
 
           {process.env.EXPO_PUBLIC_DEVELOPMENT_MODE === "True" && (
             <>
+              <TouchableOpacity style={[styles.button, { backgroundColor: colors.green }]} onPress={autofillTestAccount}>
+                <Text style={styles.buttonText}>[DEV] Preencher Conta de Teste</Text>
+              </TouchableOpacity>
+
               <TouchableOpacity
                 style={[styles.button, { backgroundColor: colors.blue }]}
                 onPress={async () => {

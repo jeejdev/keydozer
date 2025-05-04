@@ -21,6 +21,7 @@ import { useAuth } from "../context/AuthContext"
 import PasswordManagerScreen from "./(passwords)/PasswordManagerScreen"
 import { clearDecryptedMasterKey } from "@/utils/secureStore"
 import ExportPasswordsScreen from "./(passwords)/ExportPasswordsScreen"
+import ScanQRCodeScreen from "./(passwords)/ScanQRCodeScreen"
 
 const Drawer = createDrawerNavigator()
 
@@ -118,6 +119,14 @@ const DrawerNavigator = () => {
         options={{
           title: "Configurações",
           drawerIcon: ({ color }) => <Ionicons name="settings" size={24} color={color} />,
+        }}
+        />
+        <Drawer.Screen
+        name="escanear-qr"
+        component={ScanQRCodeScreen}
+        options={{
+          title: "Escanear QR Code",
+          drawerIcon: ({ color }) => <Ionicons name="qr-code-outline" size={24} color={color} />,
         }}
       />
     </Drawer.Navigator>
