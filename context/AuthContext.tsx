@@ -12,9 +12,9 @@ interface AuthContextData {
 
 const AuthContext = createContext<AuthContextData | undefined>(undefined)
 
-export const AuthProvider = ({ children }: { children: ReactNode }) => {
+export const AuthProvider = ({ children, initialUser = null }: { children: ReactNode, initialUser?: User | null }) => {
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null)
-  const [localUser, setLocalUser] = useState<User | null>(null)
+  const [localUser, setLocalUser] = useState<User | null>(initialUser)
 
   const isAuthenticated = !!firebaseUser || !!localUser
 
@@ -33,4 +33,4 @@ export const useAuth = () => {
     throw new Error("useAuth precisa estar dentro de AuthProvider")
   }
   return context
-} 
+}

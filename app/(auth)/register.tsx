@@ -10,7 +10,7 @@ import {
 import { useRouter } from "expo-router";
 import { createUserWithEmailAndPassword } from "../../services/firebaseConfig";
 import { addUser, checkUserExistsByEmail } from "../../services/database";
-import { saveDecryptedMasterKey } from "../utils/secureStore";
+
 import {
   hashPassword,
   generateRandomMasterKey,

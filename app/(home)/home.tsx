@@ -35,7 +35,7 @@ const HomeScreen: React.FC = () => {
 
       <Text style={styles.title}>Bem-vindo ao Keydozer</Text>
       <Text style={styles.subtitle}>
-        Gerencie suas senhas de forma segura e eficiente.
+        Gerencie suas senhas de forma segura e e  ciente.
       </Text>
 
       <View style={styles.featuresContainer}>
