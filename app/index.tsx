@@ -18,6 +18,7 @@ import {
   deleteDatabase,
   getPasswordsByUserId,
   getUserByEmail,
+  addUser,
 } from "../services/database"
 import * as FileSystem from "expo-file-system"
 import * as LocalAuthentication from "expo-local-authentication"
@@ -26,6 +27,8 @@ import ErrorModal from "../components/ErrorModal"
 import User from "../models/User"
 import { loginUser } from "../services/authService"
 import { useAuth } from "../context/AuthContext"
+import { encryptWithPassword, generateRandomMasterKey, hashPassword } from "@/utils/encryption"
+import { auth } from "@/services/firebaseConfig"
 
 const LoginScreen: React.FC = () => {
   const router = useRouter()
@@ -75,35 +78,54 @@ const LoginScreen: React.FC = () => {
   }, [])
 
   const handleLogin = async () => {
-    if (isLoading) return
-    try {
-      await loginUser(email, password)
+  if (isLoading) return;
 
-      const local = await getUserByEmail(email)
-      if (local) {
-        setLocalUser(local)
-        await AsyncStorage.setItem("lastLoggedInEmail", email)
-        console.log("🧠 localUser definido no contexto:", local)
-      } else {
-        console.warn("⚠️ Usuário não encontrado no SQLite")
-      }
+  try {
+    // 1. Autentica no Firebase
+    await loginUser(email, password);
 
-      router.replace("/home")
-    } catch (error: any) {
-      console.error("Erro no login:", error)
-      if (
-        error.code === "auth/invalid-credential" ||
-        error.code === "auth/user-not-found" ||
-        error.code === "auth/wrong-password"
-      ) {
-        showError("E-mail ou senha incorretos.")
-      } else {
-        showError("Erro ao fazer login. Tente novamente mais tarde.")
-      }
+    // 2. Verifica se já existe no SQLite
+    let localUser = await getUserByEmail(email);
+
+    if (!localUser) {
+      // 3. Usuário não existe localmente → cria
+      const firebaseUser = auth.currentUser;
+      if (!firebaseUser) throw new Error("Usuário Firebase não disponível");
+
+      const masterKey = await generateRandomMasterKey();
+      const encryptedMasterKey = encryptWithPassword(masterKey, password);
+      const hashedPassword = await hashPassword(password);
+
+      await addUser(
+        firebaseUser.displayName || "Nova Conta",
+        email,
+        hashedPassword,
+        encryptedMasterKey,
+        null // TODO: recuperar na 3a sprint a passwordHint
+      );
+
+      localUser = await getUserByEmail(email);
+      console.log("🆕 Usuário criado localmente:", localUser);
     }
-    
-  }
 
+    setLocalUser(localUser);
+    await AsyncStorage.setItem("lastLoggedInEmail", email);
+
+    router.replace("/home");
+
+  } catch (error: any) {
+    console.error("Erro no login:", error)
+    if (
+      error.code === "auth/invalid-credential" ||
+      error.code === "auth/user-not-found" ||
+      error.code === "auth/wrong-password"
+    ) {
+      showError("E-mail ou senha incorretos.")
+    } else {
+      showError("Erro ao fazer login. Tente novamente mais tarde.")
+    }
+  }
+};
   if (isFirstLogin && email && password) handleLogin()
 
   const handleBiometricLogin = async () => {
