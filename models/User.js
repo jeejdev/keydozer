@@ -7,7 +7,8 @@ export default class User {
     password,
     passwordHint,
     createdAt,
-    decryptedMasterKey
+    decryptedMasterKey,
+    firebaseUid
   ) {
     this.id = id
     this.name = name
@@ -17,6 +18,7 @@ export default class User {
     this.passwordHint = passwordHint
     this.createdAt = createdAt
     this.decryptedMasterKey = decryptedMasterKey
+    this.firebaseUid = firebaseUid
   }
 
   static fromRow(row) {
@@ -28,7 +30,8 @@ export default class User {
       row.password,
       row.password_hint,
       row.created_at,
-      null // inicializa decryptedMasterKey como null
+      null,
+      row.firebase_uid || null
     )
   }
 }

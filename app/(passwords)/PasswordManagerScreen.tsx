@@ -21,18 +21,19 @@ import {
   getPasswordsByUserId,
   updatePasswordById,
 } from "../../services/database"
-import { decryptData, encryptData } from "../../utils/encryption"
+import { decryptData, decryptWithPassword, encryptData, hashPassword } from "../../utils/encryption"
 import { copyToClipboard, checkPasswordStrength } from "../../utils/passwordUtils"
 import { colors } from "../../utils/theme"
 import ErrorModal from "../../components/ErrorModal"
-import { auth, EmailAuthProvider, reauthenticateWithCredential } from "@/services/firebaseConfig"
+import { auth, db, EmailAuthProvider, reauthenticateWithCredential } from "@/services/firebaseConfig"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { Ionicons } from '@expo/vector-icons'
 import QRCode from 'react-native-qrcode-svg'
+import { deleteDoc, doc, setDoc } from "firebase/firestore";
 
 const PasswordManagerScreen = () => {
   const navigation = useNavigation()
-  const { localUser } = useAuth()
+  const { localUser, setLocalUser } = useAuth();
   const [groupedPasswords, setGroupedPasswords] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [modalVisible, setModalVisible] = useState(false)
@@ -48,6 +49,7 @@ const PasswordManagerScreen = () => {
   const [errorVisible, setErrorVisible] = useState(false)
   const [canViewPasswords, setCanViewPasswords] = useState(false)
   const [passwordPromptVisible, setPasswordPromptVisible] = useState(false)
+  const [savePasswordsToCloud, setSavePasswordsToCloud] = useState(false)
   const [passwordInput, setPasswordInput] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null)
@@ -70,20 +72,31 @@ const PasswordManagerScreen = () => {
     setCategory("")
   }
 
-  const reauthenticateUser = async (inputPassword: string): Promise<boolean> => {
-    const user = auth.currentUser
-    if (!user) return false
+const reauthenticateUser = async (inputPassword: string): Promise<boolean> => {
+  const user = auth.currentUser;
+  console.log("🔒 [reauthenticateUser] currentUser:", user);
 
-    try {
-      const credential = EmailAuthProvider.credential(user.email!, inputPassword)
-      await reauthenticateWithCredential(user, credential)
-      return true
-    } catch (error) {
-      showModal("Senha incorreta. Tente novamente.", "error")
-      setPasswordPromptVisible(true)
-      return false
-    }
+  if (!user) {
+    console.warn("⚠️ [reauthenticateUser] auth.currentUser está null!");
+    return false;
   }
+
+  try {
+    console.log("📧 [reauthenticateUser] user.email:", user.email);
+    const credential = EmailAuthProvider.credential(user.email!, inputPassword);
+    console.log("✅ [reauthenticateUser] Credential criada:", credential);
+
+    await reauthenticateWithCredential(user, credential);
+    console.log("✅ [reauthenticateUser] Reautenticação bem-sucedida!");
+    return true;
+  } catch (error) {
+    console.error("❌ [reauthenticateUser] Erro ao reautenticar:", error);
+    showModal("Senha incorreta. Tente novamente.", "error");
+    setPasswordPromptVisible(true);
+    return false;
+  }
+};
+
 
   const loadPasswords = async () => {
     if (!localUser) return
@@ -116,78 +129,185 @@ const PasswordManagerScreen = () => {
     setLoading(false)
   }
 
-  useFocusEffect(
-    React.useCallback(() => {
-      const checkProtectionAndLoad = async () => {
-        setCanViewPasswords(false)
-        const setting = await AsyncStorage.getItem("requirePasswordToView")
-        const require = setting === "true"
+useFocusEffect(
+  React.useCallback(() => {
+    const checkSettingsAndLoad = async () => {
+      setCanViewPasswords(false)
 
-        if (require) {
-          setPasswordPromptVisible(true)
-        } else {
-          setCanViewPasswords(true)
-          loadPasswords()
-        }
+      const requireSetting = await AsyncStorage.getItem("requirePasswordToView")
+      const require = requireSetting === "true"
+      console.log("💾 [useFocusEffect] requirePasswordToView:", requireSetting)
+
+      if (require) {
+        setPasswordPromptVisible(true)
+      } else {
+        setCanViewPasswords(true)
+        loadPasswords()
       }
 
-      checkProtectionAndLoad()
-    }, [])
-  )
+      const saveSetting = await AsyncStorage.getItem("savePasswordsToCloud")
+      console.log("💾 [useFocusEffect] savePasswordsToCloud setting:", saveSetting)
 
-  const confirmPasswordView = async () => {
-    const success = await reauthenticateUser(passwordInput)
-    if (success) {
-      setPasswordPromptVisible(false)
-      setCanViewPasswords(true)
-      loadPasswords()
+      if (saveSetting !== null) {
+        setSavePasswordsToCloud(saveSetting === "true")
+      } else {
+        console.log("💾 [useFocusEffect] savePasswordsToCloud não configurado, ativando por padrão.")
+        await AsyncStorage.setItem("savePasswordsToCloud", "true")
+        setSavePasswordsToCloud(true)
+      }
     }
-    setPasswordInput("")
+
+    checkSettingsAndLoad()
+  }, [])
+)
+
+const validatePasswordByHash = async (inputPassword: string, storedHashedPassword: string): Promise<boolean> => {
+  const inputHash = await hashPassword(inputPassword)
+  console.log("🔒 [validatePasswordByHash] inputHash:", inputHash)
+  console.log("🔒 [validatePasswordByHash] storedHash:", storedHashedPassword)
+  return inputHash === storedHashedPassword
+}
+
+const confirmPasswordView = async () => {
+  console.log("🔒 [confirmPasswordView] Iniciado")
+
+  if (!localUser) {
+    console.warn("⚠️ [confirmPasswordView] localUser está null!")
+    return
   }
+
+  const isValid = await validatePasswordByHash(passwordInput, localUser.password)
+
+  if (!isValid) {
+    console.error("❌ [confirmPasswordView] Senha incorreta.")
+    showModal("Senha incorreta. Tente novamente.", "error")
+    return
+  }
+
+  console.log("✅ [confirmPasswordView] Senha validada com sucesso.")
+
+  const decryptedMasterKey = decryptWithPassword(localUser.encryptedMasterKey, passwordInput)
+  console.log("🔑 decryptedMasterKey:", decryptedMasterKey)
+
+  if (decryptedMasterKey.startsWith("[DESCRIPTOGRAFIA_FALHOU]")) {
+    showModal("Falha ao descriptografar a chave mestra.", "error")
+    return
+  }
+
+  setLocalUser({ ...localUser, decryptedMasterKey })
+
+  setPasswordPromptVisible(false)
+  setCanViewPasswords(true)
+
+  console.log("📥 [confirmPasswordView] Chamando loadPasswords...")
+  loadPasswords()
+
+  setPasswordInput("")
+}
+
 
   const handleCancelPasswordPrompt = () => {
     setPasswordPromptVisible(false)
     navigation.goBack()
   }
 
-  const handleSave = async () => {
-    if (!serviceName || !password || !localUser) {
-      showModal("Preencha todos os campos obrigatórios.", "error")
-      return
-    }
-    try {
-      const encryptedPassword = encryptData(password, localUser.decryptedMasterKey || "")
-      const encryptedadditionalInfo = encryptData(additionalInfo || "", localUser.decryptedMasterKey || "")
+const handleSave = async () => {
+  if (!serviceName || !password || !localUser) {
+    showModal("Preencha todos os campos obrigatórios.", "error")
+    return
+  }
 
-      if (isEditing && selectedId !== null) {
-        await updatePasswordById(
-          selectedId,
-          encryptedPassword,
-          serviceName,
-          username,
-          category,
-          encryptedadditionalInfo
-        )
-      } else {
-        await addPassword(
-          localUser.id,
-          encryptedPassword,
-          serviceName,
-          username,
-          category,
-          encryptedadditionalInfo
-        )
+  console.log("📝 Iniciando handleSave...")
+  console.log("👤 [handleSave] localUser completo:", JSON.stringify(localUser, null, 2))
+
+  try {
+    const encryptedPassword = encryptData(password, localUser.decryptedMasterKey || "")
+    const encryptedadditionalInfo = encryptData(additionalInfo || "", localUser.decryptedMasterKey || "")
+
+    let newPasswordId: number | null = null
+    let createdAt = new Date().toISOString() // Padrão se for novo
+
+    if (isEditing && selectedId !== null) {
+      console.log("✏️ Editando senha local ID:", selectedId)      
+
+      // Busca o registro existente para manter o createdAt
+      const existing = groupedPasswords
+        .flatMap(section => section.data)
+        .find(item => item.id === selectedId)
+
+      if (existing && existing.createdAt) {
+        createdAt = existing.createdAt
       }
 
-      showModal("Senha salva com sucesso!", "success")
-      setModalVisible(false)
-      resetForm()
-      loadPasswords()
-    } catch (e) {
-      console.error("Erro ao salvar:", e)
-      showModal("Erro ao salvar senha.", "error")
+      await updatePasswordById(
+        selectedId,
+        encryptedPassword,
+        serviceName,
+        username,
+        category,
+        encryptedadditionalInfo
+      )
+      newPasswordId = selectedId
+    } else {
+      console.log("➕ Adicionando nova senha local...")
+      newPasswordId = await addPassword(
+        localUser.id,
+        encryptedPassword,
+        serviceName,
+        username,
+        category,
+        encryptedadditionalInfo
+      )
+      console.log("✅ Senha local salva. ID:", newPasswordId)
     }
+
+    console.log("☁️ savePasswordsToCloud:", savePasswordsToCloud)
+
+    const firebaseUid = localUser.firebaseUid || auth.currentUser?.uid
+
+    console.log("👤 localUser.firebaseUid:", localUser.firebaseUid)
+    console.log("👤 auth.currentUser.uid:", auth.currentUser?.uid)
+
+    if (savePasswordsToCloud && firebaseUid) {
+      console.log("☁️ Salvando senha na nuvem para UID:", firebaseUid)
+
+      const passwordRef = doc(db, "users", firebaseUid, "passwords", `${newPasswordId}`)
+
+      const firestoreData: any = {
+        serviceName,
+        password: encryptedPassword,
+        username,
+        category,
+        additionalInfo: encryptedadditionalInfo,
+        createdAt
+      }
+
+      if (isEditing) {
+        firestoreData.updatedAt = new Date().toISOString()
+      }
+
+      try {
+        await setDoc(passwordRef, firestoreData)
+        console.log("✅ Senha salva/atualizada na nuvem com sucesso.")
+      } catch (e) {
+        console.error("❌ Erro ao salvar na nuvem:", e)
+      }
+    } else {
+      console.warn("⚠️ Salvamento na nuvem não realizado (configuração ou autenticação inválida).")
+    }
+
+    showModal("Senha salva com sucesso!", "success")
+    setModalVisible(false)
+    resetForm()
+    loadPasswords()
+
+  } catch (e) {
+    console.error("❌ Erro ao salvar:", e)
+    showModal("Erro ao salvar senha.", "error")
   }
+}
+
+
 
   const handleDelete = async (id: number) => {
     Alert.alert("Confirmar exclusão", "Tem certeza que deseja excluir esta senha?", [
@@ -196,11 +316,22 @@ const PasswordManagerScreen = () => {
         text: "Excluir",
         style: "destructive",
         onPress: async () => {
-          await deletePasswordById(id)
-          setModalVisible(false)
-          resetForm()
-          loadPasswords()
-          showModal("Senha excluída com sucesso!", "success")
+          try {
+            await deletePasswordById(id)
+
+            if (localUser && localUser.firebaseUid) {
+              const passwordRef = doc(db, "users", localUser.firebaseUid, "passwords", `${id}`)
+              await deleteDoc(passwordRef)
+            }
+
+            setModalVisible(false)
+            resetForm()
+            loadPasswords()
+            showModal("Senha excluída com sucesso!", "success")
+          } catch (error) {
+            console.error("Erro ao excluir senha:", error)
+            showModal("Erro ao excluir senha.", "error")
+          }
         },
       },
     ])

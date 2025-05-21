@@ -11,24 +11,30 @@ import {
 import { useRouter, useLocalSearchParams } from "expo-router"
 import { MaterialIcons } from "@expo/vector-icons"
 import AsyncStorage from "@react-native-async-storage/async-storage"
+import * as FileSystem from "expo-file-system"
+import * as LocalAuthentication from "expo-local-authentication"
 
 import {
   getAllUsers,
   initDB,
   deleteDatabase,
-  getPasswordsByUserId,
   getUserByEmail,
   addUser,
+  addPassword,
+  getPasswordsByUserId,
 } from "../services/database"
-import * as FileSystem from "expo-file-system"
-import * as LocalAuthentication from "expo-local-authentication"
 import { colors } from "../utils/theme"
 import ErrorModal from "../components/ErrorModal"
 import User from "../models/User"
 import { loginUser } from "../services/authService"
 import { useAuth } from "../context/AuthContext"
-import { encryptWithPassword, generateRandomMasterKey, hashPassword } from "@/utils/encryption"
-import { auth } from "@/services/firebaseConfig"
+import {
+  decryptWithPassword,
+  encryptData,
+  hashPassword,
+} from "@/utils/encryption"
+import { auth, db } from "@/services/firebaseConfig"
+import { collection, doc, getDoc, getDocs } from "firebase/firestore"
 
 const LoginScreen: React.FC = () => {
   const router = useRouter()
@@ -44,9 +50,10 @@ const LoginScreen: React.FC = () => {
   const [errorModalVisible, setErrorModalVisible] = useState(false)
   const [errorMessage, setErrorMessage] = useState("")
   const [suggestedUser, setSuggestedUser] = useState<User | null>(null)
+  const [storedPassword, setStoredPassword] = useState<string | null>(null)
 
-  const params = useLocalSearchParams();
-  const isFirstLogin = params.firstLogin === "true";
+  const params = useLocalSearchParams()
+  const isFirstLogin = params.firstLogin === "true"
 
   const showError = (message: string) => {
     setErrorMessage(message)
@@ -58,80 +65,128 @@ const LoginScreen: React.FC = () => {
       try {
         const dbPath = FileSystem.documentDirectory + "SQLite/keydozer.db"
         const fileInfo = await FileSystem.getInfoAsync(dbPath)
-
         if (!fileInfo.exists) await initDB()
 
         const lastEmail = await AsyncStorage.getItem("lastLoggedInEmail")
         if (lastEmail) {
           const user = await getUserByEmail(lastEmail)
-          if (user) setSuggestedUser(user)
+          if (user && user.encryptedMasterKey) {
+            setSuggestedUser(user)
+            const savedPass = await AsyncStorage.getItem(`password:${lastEmail}`)
+            setStoredPassword(savedPass)
+            console.log("🔑 Senha armazenada:", !!savedPass)
+          } else {
+            console.log("⚠️ Usuário encontrado mas sem MasterKey.")
+          }
         }
       } catch (error) {
         showError("Erro ao inicializar o app.")
-        console.error("Erro no init:", error)
+        console.error("❌ Erro no init:", error)
       } finally {
         setIsLoading(false)
       }
     }
-
     init()
   }, [])
 
   const handleLogin = async () => {
-  if (isLoading) return;
+    if (isLoading) return
 
-  try {
-    // 1. Autentica no Firebase
-    await loginUser(email, password);
+    try {
+      console.log("🔐 Iniciando login com:", email)
+      let localUser = await getUserByEmail(email)
 
-    // 2. Verifica se já existe no SQLite
-    let localUser = await getUserByEmail(email);
+      await loginUser(email, password)
+      const firebaseUser = auth.currentUser
+      if (!firebaseUser) throw new Error("Usuário Firebase não disponível")
 
-    if (!localUser) {
-      // 3. Usuário não existe localmente → cria
-      const firebaseUser = auth.currentUser;
-      if (!firebaseUser) throw new Error("Usuário Firebase não disponível");
+      if (!localUser) {
+        console.log("🆕 Primeiro login. Buscando dados no Firestore...")
+        const userDoc = await getDoc(doc(db, "users", firebaseUser.uid))
+        if (!userDoc.exists()) {
+          showError("Conta não encontrada. Crie uma conta antes de tentar logar.")
+          return
+        }
 
-      const masterKey = await generateRandomMasterKey();
-      const encryptedMasterKey = encryptWithPassword(masterKey, password);
-      const hashedPassword = await hashPassword(password);
+        const userData = userDoc.data()
+        await addUser(
+          userData.name || "Nova Conta",
+          email,
+          await hashPassword(password),
+          userData.encryptedMasterKey,
+          userData.passwordHint || null,
+          firebaseUser.uid
+        )
+        localUser = await getUserByEmail(email)
+        if (!localUser) {
+          showError("Erro ao salvar o usuário localmente.")
+          return
+        }
+        console.log("✅ Usuário salvo localmente.")
+      } else {
+        console.log("✅ Usuário local encontrado.")
+      }
 
-      await addUser(
-        firebaseUser.displayName || "Nova Conta",
-        email,
-        hashedPassword,
-        encryptedMasterKey,
-        null // TODO: recuperar na 3a sprint a passwordHint
-      );
+      const decryptedMasterKey = decryptWithPassword(
+        localUser.encryptedMasterKey,
+        password
+      )
+      if (!decryptedMasterKey) {
+        showError("Falha ao descriptografar sua chave mestra. Verifique sua senha.")
+        return
+      }
 
-      localUser = await getUserByEmail(email);
-      console.log("🆕 Usuário criado localmente:", localUser);
-    }
+      setLocalUser({ ...localUser, decryptedMasterKey })
+      await AsyncStorage.setItem("lastLoggedInEmail", email)
+      await AsyncStorage.setItem(`password:${email}`, password)
 
-    setLocalUser(localUser);
-    await AsyncStorage.setItem("lastLoggedInEmail", email);
+      if (isFirstLogin) {
+        console.log("☁️ Sincronizando senhas da nuvem...")
+        const passwordsCol = collection(db, "users", firebaseUser.uid, "passwords")
+        const passwordsSnapshot = await getDocs(passwordsCol)
 
-    router.replace("/home");
+        await AsyncStorage.setItem("savePasswordsToCloud", "true")
+        console.log("☁️ Salvamento na nuvem ativado por padrão.")
 
-  } catch (error: any) {
-    console.error("Erro no login:", error)
-    if (
-      error.code === "auth/invalid-credential" ||
-      error.code === "auth/user-not-found" ||
-      error.code === "auth/wrong-password"
-    ) {
-      showError("E-mail ou senha incorretos.")
-    } else {
-      showError("Erro ao fazer login. Tente novamente mais tarde.")
+        for (const docSnap of passwordsSnapshot.docs) {
+          const data = docSnap.data()
+          const encryptedPassword = encryptData(data.password, decryptedMasterKey)
+          const encryptedAdditionalInfo = encryptData(data.additionalInfo || "", decryptedMasterKey)
+
+          await addPassword(
+            localUser.id,
+            encryptedPassword,
+            data.serviceName,
+            data.username,
+            data.category,
+            encryptedAdditionalInfo
+          )
+        }
+        console.log("✅ Sincronização de senhas concluída.")
+      }
+
+      router.replace("/home")
+    } catch (error: any) {
+      console.error("❌ Erro no login:", error)
+      if (
+        error.code === "auth/invalid-credential" ||
+        error.code === "auth/user-not-found" ||
+        error.code === "auth/wrong-password"
+      ) {
+        showError("E-mail ou senha incorretos.")
+      } else {
+        showError("Erro ao fazer login. Tente novamente mais tarde.")
+      }
     }
   }
-};
-  if (isFirstLogin && email && password) handleLogin()
 
   const handleBiometricLogin = async () => {
+    console.log("🔐 Iniciando login biométrico...")
+
     try {
       const compatible = await LocalAuthentication.hasHardwareAsync()
       const enrolled = await LocalAuthentication.isEnrolledAsync()
+
       if (!compatible || !enrolled) {
         showError("Seu dispositivo não suporta biometria.")
         return
@@ -142,20 +197,40 @@ const LoginScreen: React.FC = () => {
         fallbackLabel: "Usar senha",
       })
 
-      if (result.success) {
-        const lastEmail = await AsyncStorage.getItem("lastLoggedInEmail")
-        if (lastEmail) {
-          const localUser = await getUserByEmail(lastEmail)
-          if (localUser) {
-            setLocalUser(localUser)
-            router.replace("/home")
-            return
-          }
-        }
-        showError("Usuário local não encontrado após autenticação.")
+      if (!result.success) return
+      console.log("✅ Biometria autenticada!")
+
+      const lastEmail = await AsyncStorage.getItem("lastLoggedInEmail")
+      if (!lastEmail) {
+        showError("Nenhum usuário encontrado. Faça login manualmente.")
+        return
       }
+
+      const localUser = await getUserByEmail(lastEmail)
+      if (!localUser) {
+        showError("Usuário local não encontrado após autenticação.")
+        return
+      }
+
+      const savedPass = await AsyncStorage.getItem(`password:${lastEmail}`)
+      if (!savedPass) {
+        showError("Senha não disponível. Faça login manualmente.")
+        return
+      }
+
+      const decryptedMasterKey = decryptWithPassword(
+        localUser.encryptedMasterKey,
+        savedPass
+      )
+      if (!decryptedMasterKey) {
+        showError("Erro ao descriptografar. Faça login manualmente.")
+        return
+      }
+
+      setLocalUser({ ...localUser, decryptedMasterKey })
+      router.replace("/home")
     } catch (error) {
-      console.error("Erro biometria:", error)
+      console.error("❌ Erro no login biométrico:", error)
       showError("Erro ao logar com biometria.")
     }
   }
@@ -164,7 +239,7 @@ const LoginScreen: React.FC = () => {
     try {
       await deleteDatabase()
     } catch (err) {
-      console.error("Erro ao excluir banco local:", err)
+      console.error("❌ Erro ao excluir banco local:", err)
     }
   }
 
@@ -185,7 +260,7 @@ const LoginScreen: React.FC = () => {
     <View style={styles.container}>
       <Image source={require("../assets/images/logo.png")} style={styles.logo} />
 
-      {suggestedUser ? (
+      {suggestedUser && suggestedUser.encryptedMasterKey && storedPassword ? (
         <View style={{ alignItems: "center", marginBottom: 30 }}>
           <Text style={styles.title}>Bem-vindo de volta, {suggestedUser.name}</Text>
           <TouchableOpacity style={styles.button} onPress={handleBiometricLogin}>
@@ -198,7 +273,6 @@ const LoginScreen: React.FC = () => {
       ) : (
         <>
           <Text style={styles.title}>Login</Text>
-
           <TextInput
             style={styles.input}
             placeholder="E-mail"
@@ -207,7 +281,6 @@ const LoginScreen: React.FC = () => {
             keyboardType="email-address"
             autoCapitalize="none"
           />
-
           <View style={styles.passwordContainer}>
             <TextInput
               style={styles.passwordInput}
@@ -225,11 +298,9 @@ const LoginScreen: React.FC = () => {
               />
             </TouchableOpacity>
           </View>
-
           <TouchableOpacity style={styles.button} onPress={handleLogin}>
             <Text style={styles.buttonText}>Entrar</Text>
           </TouchableOpacity>
-
           <TouchableOpacity onPress={() => router.push("/register")}>
             <Text style={styles.link}>Não tem uma conta? Criar conta</Text>
           </TouchableOpacity>
@@ -281,7 +352,9 @@ const LoginScreen: React.FC = () => {
                 style={[styles.button, { backgroundColor: "#D32F2F" }]}
                 onPress={handleDeleteDB}
               >
-                <Text style={{ color: "#fff", fontWeight: "bold" }}>[DEV] Excluir Banco de Dados</Text>
+                <Text style={{ color: "#fff", fontWeight: "bold" }}>
+                  [DEV] Excluir Banco de Dados
+                </Text>
               </TouchableOpacity>
             </>
           )}

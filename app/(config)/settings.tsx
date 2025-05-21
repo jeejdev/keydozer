@@ -54,6 +54,7 @@ const SettingsScreen: React.FC = () => {
   const [confirmDeleteVisible, setConfirmDeleteVisible] = useState(false)
   const [confirmText, setConfirmText] = useState("")
   const [requirePasswordToView, setRequirePasswordToView] = useState(false)
+  const [savePasswordsToCloud, setSavePasswordsToCloud] = useState(true)
 
   const firebaseUser = auth.currentUser
 
@@ -68,13 +69,18 @@ const SettingsScreen: React.FC = () => {
   }, [localUser, firebaseUser])
 
   useEffect(() => {
-    const loadRequirePasswordSetting = async () => {
-      const value = await AsyncStorage.getItem("requirePasswordToView")
-      if (value !== null) {
-        setRequirePasswordToView(value === "true")
+    const loadSettings = async () => {
+      const viewValue = await AsyncStorage.getItem("requirePasswordToView")
+      if (viewValue !== null) {
+        setRequirePasswordToView(viewValue === "true")
+      }
+
+      const cloudValue = await AsyncStorage.getItem("savePasswordsToCloud")
+      if (cloudValue !== null) {
+        setSavePasswordsToCloud(cloudValue === "true")
       }
     }
-    loadRequirePasswordSetting()
+    loadSettings()
   }, [])
 
   useFocusEffect(
@@ -102,6 +108,18 @@ const SettingsScreen: React.FC = () => {
     await AsyncStorage.setItem("requirePasswordToView", newValue.toString())
     showModal(
       newValue ? "🔐 Proteção para visualizar senhas ativada!" : "🔓 Proteção para visualizar senhas desativada.",
+      "success"
+    )
+  }
+
+  const toggleSavePasswordsToCloud = async () => {
+    const newValue = !savePasswordsToCloud
+    setSavePasswordsToCloud(newValue)
+    await AsyncStorage.setItem("savePasswordsToCloud", newValue.toString())
+    showModal(
+      newValue
+        ? "☁️ Salvamento automático na nuvem ativado."
+        : "☁️ Salvamento automático na nuvem desativado.",
       "success"
     )
   }
@@ -256,34 +274,56 @@ const SettingsScreen: React.FC = () => {
         <Text style={styles.buttonText}>⚙️ Configurações Extras</Text>
       </TouchableOpacity>
 
-      <Modal visible={extrasVisible} animationType="slide" transparent>
-        <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "rgba(0,0,0,0.5)" }}>
-          <View style={{ backgroundColor: "white", padding: 20, borderRadius: 10, width: "85%" }}>
-            <TouchableOpacity
-              style={[styles.button, { backgroundColor: requirePasswordToView ? "#D32F2F" : colors.green }]}
-              onPress={toggleRequirePasswordToView}
-            >
-              <Text style={styles.buttonText}>
-                {requirePasswordToView ? "🔓 Desativar Proteção de Visualização" : "🔒 Ativar Proteção de Visualização"}
-              </Text>
-            </TouchableOpacity>
+<Modal visible={extrasVisible} animationType="slide" transparent>
+  <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "rgba(0,0,0,0.5)" }}>
+    <View style={{ backgroundColor: "white", padding: 20, borderRadius: 10, width: "85%" }}>
 
-            <TouchableOpacity
-              style={[styles.button, { backgroundColor: "#D32F2F" }]}
-              onPress={confirmDeleteAccount}
-            >
-              <Text style={styles.buttonText}>🗑 Excluir Conta e Dados</Text>
-            </TouchableOpacity>
+      {/* Proteção de Visualização */}
+      <Text style={[styles.label, { marginTop: 10 }]}>
+        🔒 Proteção de Visualização: {requirePasswordToView ? "Ativada" : "Desativada"}
+      </Text>
+      <TouchableOpacity
+        style={[styles.button, { backgroundColor: colors.yellow }]}
+        onPress={toggleRequirePasswordToView}
+      >
+        <Text style={styles.buttonText}>
+          {requirePasswordToView ? "Desativar" : "Ativar"} Proteção de Visualização
+        </Text>
+      </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[styles.button, { backgroundColor: colors.mediumGray }]}
-              onPress={() => setExtrasVisible(false)}
-            >
-              <Text style={styles.buttonText}>✖️ Fechar</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+      {/* Salvamento na Nuvem */}
+      <Text style={[styles.label, { marginTop: 10 }]}>
+        ☁️ Salvamento na Nuvem: {savePasswordsToCloud ? "Ativado" : "Desativado"}
+      </Text>
+      <TouchableOpacity
+        style={[styles.button, { backgroundColor: colors.yellow }]}
+        onPress={toggleSavePasswordsToCloud}
+      >
+        <Text style={styles.buttonText}>
+          {savePasswordsToCloud ? "Desativar" : "Ativar"} Salvamento na Nuvem
+        </Text>
+      </TouchableOpacity>
+
+      {/* Excluir conta */}
+      <TouchableOpacity
+        style={[styles.button, { backgroundColor: "#D32F2F", marginTop: 20 }]}
+        onPress={confirmDeleteAccount}
+      >
+        <Text style={styles.buttonText}>🗑 Excluir Conta e Dados</Text>
+      </TouchableOpacity>
+
+      {/* Fechar */}
+      <TouchableOpacity
+        style={[styles.button, { backgroundColor: colors.mediumGray, marginTop: 10 }]}
+        onPress={() => setExtrasVisible(false)}
+      >
+        <Text style={styles.buttonText}>✖️ Fechar</Text>
+      </TouchableOpacity>
+
+    </View>
+  </View>
+</Modal>
+
 
       <Modal
         visible={confirmDeleteVisible}

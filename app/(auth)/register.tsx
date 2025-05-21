@@ -8,8 +8,9 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { createUserWithEmailAndPassword } from "../../services/firebaseConfig";
-import { addUser, checkUserExistsByEmail } from "../../services/database";
+import { createUserWithEmailAndPassword, db } from "../../services/firebaseConfig";
+import { setDoc, doc } from "firebase/firestore"
+import { addUser, checkUserExistsByEmail, deleteUserByEmail } from "../../services/database";
 
 import {
   hashPassword,
@@ -79,25 +80,45 @@ const RegisterScreen: React.FC = () => {
       return;
     }
 
+    let uid: string | null = null;
+    let firebaseUser = null;
+    let userCreatedLocally = false;
+
     try {
       const userExists = await checkUserExistsByEmail(email);
       if (userExists) throw new Error("EMAIL_ALREADY_EXISTS");
 
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      const firebaseUser = userCredential.user;
+      firebaseUser = userCredential.user;
+      uid = firebaseUser.uid;
 
       const masterKey = await generateRandomMasterKey();
       const encryptedMasterKey = encryptWithPassword(masterKey, password);
-
       const hashedPassword = await hashPassword(password);
 
-      await addUser(name, email, hashedPassword, encryptedMasterKey, passwordHint || null);
+      if (encryptedMasterKey === "[ENCRYPTION_FAILED]") throw new Error("FALHA_CRIPTO");
+
+      await setDoc(doc(db, "users", uid), {
+        name,
+        email,
+        encryptedMasterKey,
+        password: hashedPassword,
+        passwordHint: passwordHint || "",
+        createdAt: new Date().toISOString(),
+      });
+
+      await addUser(
+        name,
+        email,
+        hashedPassword,
+        encryptedMasterKey,
+        passwordHint || null,
+        uid
+      );
+
+      userCreatedLocally = true;
 
       showModal("Conta criada com sucesso!", "success");
-
-      if (encryptedMasterKey === "[ENCRYPTION_FAILED]") {
-        throw new Error("FALHA_CRIPTO");
-      }
 
       setTimeout(() => {
         setModalVisible(false);
@@ -106,16 +127,36 @@ const RegisterScreen: React.FC = () => {
           params: { email, password, firstLogin: "true" },
         });
       }, 2000);
+
     } catch (error: any) {
       console.error("❌ Erro ao criar conta:", error);
 
-      const currentUser = auth.currentUser;
-      if (currentUser) {
+      // ROLLBACK Firebase Auth
+      if (firebaseUser) {
         try {
-          await currentUser.delete();
-          console.log("🧹 Usuário removido do Firebase após falha local.");
+          await firebaseUser.delete();
+          console.log("🧹 Firebase Auth revertido.");
         } catch (deleteErr) {
-          console.error("⚠️ Erro ao remover usuário do Firebase:", deleteErr);
+          console.error("⚠️ Erro ao deletar usuário do Firebase:", deleteErr);
+        }
+      }
+
+      // ROLLBACK Firestore
+      if (uid) {
+        try {
+          await setDoc(doc(db, "users", uid), {}); // limpa
+          console.log("🧹 Documento Firestore limpo.");
+        } catch (err) {
+          console.error("⚠️ Erro ao limpar Firestore:", err);
+        }
+      }
+
+      // ROLLBACK SQLite
+      if (userCreatedLocally) {
+        try {
+          await deleteUserByEmail(email);
+        } catch (err) {
+          console.error("⚠️ Erro ao remover usuário local:", err);
         }
       }
 
@@ -124,6 +165,8 @@ const RegisterScreen: React.FC = () => {
         errorMessage = "Este e-mail já está em uso.";
       } else if (error.message === "EMAIL_ALREADY_EXISTS") {
         errorMessage = "Este e-mail já está cadastrado localmente.";
+      } else if (error.message === "FALHA_CRIPTO") {
+        errorMessage = "Erro na criptografia da chave mestra.";
       }
 
       showModal(errorMessage, "error");

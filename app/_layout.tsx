@@ -23,6 +23,7 @@ import { clearDecryptedMasterKey } from "@/utils/secureStore"
 import ExportPasswordsScreen from "./(passwords)/ExportPasswordsScreen"
 import ScanQRCodeScreen from "./(passwords)/ScanQRCodeScreen"
 import SecurityReportScreen from "./(passwords)/SecurityReportScreen"
+import SyncStatusScreen from "./(passwords)/SyncStatusScreen"
 
 const Drawer = createDrawerNavigator()
 
@@ -106,6 +107,14 @@ const DrawerNavigator = () => {
           drawerIcon: ({ color }) => <Ionicons name="key" size={24} color={color} />,
         }}
       /> */}
+      <Drawer.Screen
+        name="sincronizacao"
+        component={SyncStatusScreen}
+        options={{
+          title: "Sincronizar com a Nuvem",
+          drawerIcon: ({ color }) => <Ionicons name="sync-outline" size={24} color={color} />,
+        }}
+      />
       <Drawer.Screen
         name="relatorios-seguranca"
         component={SecurityReportScreen}
