@@ -10,7 +10,8 @@ export default class User {
     decryptedMasterKey,
     firebaseUid,
     has2FA,
-    twofaSecret
+    twofaSecret,
+    securityQuestions
   ) {
     this.id = id;
     this.name = name;
@@ -23,6 +24,7 @@ export default class User {
     this.firebaseUid = firebaseUid;
     this.has2FA = has2FA;
     this.twofaSecret = twofaSecret;
+    this.securityQuestions = securityQuestions; 
   }
 
   static fromRow(row) {
@@ -37,7 +39,8 @@ export default class User {
       null,
       row.firebase_uid || null,
       row.has_2fa === 1,
-      row.twofa_secret || null
+      row.twofa_secret || null,
+      row.security_questions || null
     );
   }
 }

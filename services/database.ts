@@ -17,6 +17,7 @@ interface UserRow {
   firebase_uid: string | null
   has_2fa: number
   twofa_secret: string | null
+  security_questions: string | null
 }
 
 interface PasswordRow {
@@ -75,7 +76,8 @@ export const addUser = async (
   passwordHint: string | null = null,
   firebaseUid: string | null = null,
   has2FA: boolean = false,
-  twofaSecret: string | null = null
+  twofaSecret: string | null = null,
+  securityQuestions: string | null = null
 ): Promise<number> => {
   console.log("📥 Chamando addUser com:", name, email)
 
@@ -90,8 +92,8 @@ export const addUser = async (
   try {
     const result = await db.runAsync(
       `INSERT INTO users 
-      (name, email, password, encrypted_master_key, password_hint, firebase_uid, has_2fa, twofa_secret) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      (name, email, password, encrypted_master_key, password_hint, firebase_uid, has_2fa, twofa_secret, security_questions) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       name,
       email,
       password,
@@ -99,7 +101,8 @@ export const addUser = async (
       passwordHint,
       firebaseUid,
       has2FA ? 1 : 0,
-      twofaSecret
+      twofaSecret,
+      securityQuestions
     )
 
     console.log("✅ Usuário local salvo com ID:", result.lastInsertRowId)
@@ -109,6 +112,7 @@ export const addUser = async (
     throw error
   }
 }
+
 
 export const updateUser2FA = async (
   userId: number,
@@ -120,6 +124,18 @@ export const updateUser2FA = async (
     `UPDATE users SET has_2fa = ?, twofa_secret = ? WHERE id = ?`,
     has2FA ? 1 : 0,
     twofaSecret,
+    userId
+  )
+}
+
+export const updateUserSecurityQuestions = async (
+  userId: number,
+  securityQuestions: string | null
+): Promise<void> => {
+  if (!db) await initDB()
+  await db.runAsync(
+    `UPDATE users SET security_questions = ? WHERE id = ?`,
+    securityQuestions,
     userId
   )
 }

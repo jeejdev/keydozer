@@ -39,6 +39,17 @@ const RegisterScreen: React.FC = () => {
 
   const { isValid, requirements } = checkPasswordStrength(password);
 
+  const defaultQuestions = [
+  "Nome do seu primeiro pet?",
+  "Cidade onde nasceu?",
+  "Nome da escola primária?",
+  ];
+
+  const [securityAnswers, setSecurityAnswers] = useState<string[]>(["", "", ""]);
+  const [extraQuestion, setExtraQuestion] = useState<string>("");
+  const [extraAnswer, setExtraAnswer] = useState<string>("");
+  const [showExtraQuestion, setShowExtraQuestion] = useState(false);
+
   const showModal = (message: string, type: "error" | "success" | "info") => {
     setModalMessage(message);
     setModalType(type);
@@ -81,6 +92,30 @@ const RegisterScreen: React.FC = () => {
       return;
     }
 
+    // Monta security_questions
+    const securityQuestions = [];
+
+    for (let i = 0; i < defaultQuestions.length; i++) {
+      const question = defaultQuestions[i];
+      const answer = securityAnswers[i]?.trim();
+      if (!answer) {
+        showModal(`Por favor, responda a pergunta: "${question}"`, "error");
+        return;
+      }
+      const answerHash = await hashPassword(answer);
+      securityQuestions.push({ question, answerHash });
+    }
+
+    if (showExtraQuestion && extraQuestion.trim() && extraAnswer.trim()) {
+      const extraAnswerHash = await hashPassword(extraAnswer.trim());
+      securityQuestions.push({
+        question: extraQuestion.trim(),
+        answerHash: extraAnswerHash,
+      });
+    }
+
+    const securityQuestionsJSON = JSON.stringify(securityQuestions);
+
     let uid: string | null = null;
     let firebaseUser = null;
     let userCreatedLocally = false;
@@ -106,7 +141,8 @@ const RegisterScreen: React.FC = () => {
         password: hashedPassword,
         passwordHint: passwordHint || "",
         createdAt: new Date().toISOString(),
-        firebaseUid: uid
+        firebaseUid: uid,
+        securityQuestions: securityQuestionsJSON
       });
 
       await addUser(
@@ -117,7 +153,8 @@ const RegisterScreen: React.FC = () => {
         passwordHint || null,
         uid,
         false,
-        null
+        null,
+        securityQuestionsJSON
       );
 
       userCreatedLocally = true;
@@ -257,6 +294,48 @@ const RegisterScreen: React.FC = () => {
         onChangeText={setPasswordHint}
       />
 
+        <Text style={styles.title}>Perguntas de Segurança</Text>
+
+      {defaultQuestions.map((q, index) => (
+        <View key={index} style={{ marginBottom: 10, width: "90%" }}>
+          <Text style={{ marginBottom: 4 }}>{q}</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Sua resposta"
+            value={securityAnswers[index]}
+            onChangeText={(text) => {
+              const newAnswers = [...securityAnswers];
+              newAnswers[index] = text;
+              setSecurityAnswers(newAnswers);
+            }}
+          />
+        </View>
+      ))}
+
+      {showExtraQuestion && (
+        <>
+          <TextInput
+            style={styles.input}
+            placeholder="Pergunta extra"
+            value={extraQuestion}
+            onChangeText={setExtraQuestion}
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Resposta da pergunta extra"
+            value={extraAnswer}
+            onChangeText={setExtraAnswer}
+          />
+        </>
+      )}
+
+      <TouchableOpacity
+        style={[styles.button, { backgroundColor: colors.green }]}
+        onPress={() => setShowExtraQuestion(true)}
+      >
+        <Text style={styles.buttonText}>+ Adicionar Pergunta Extra</Text>
+      </TouchableOpacity>
+
       {/* Aceite dos Termos */}
       <View style={{ flexDirection: "row", alignItems: "center", width: "90%", marginBottom: 10 }}>
         <TouchableOpacity
@@ -308,6 +387,9 @@ const RegisterScreen: React.FC = () => {
               - Em caso de perda ou esquecimento da senha mestre, não será possível recuperar as senhas armazenadas devido à utilização de criptografia forte. {"\n\n"}
               - O aplicativo permite apenas a recuperação da conta via redefinição de senha, com perda de todas as senhas previamente salvas. {"\n\n"}
               - O desenvolvedor do aplicativo não se responsabiliza por perdas de dados causadas por negligência do usuário em guardar sua senha mestre. {"\n\n"}
+              - As perguntas de segurança utilizadas para recuperação de conta devem ser preenchidas com responsabilidade. {"\n\n"}
+              - A pergunta secreta personalizada **pode ser pública**, portanto **não insira dados sensíveis ou informações que comprometam sua segurança**. {"\n\n"}
+              - É recomendado escrever as respostas com **letras minúsculas** e **uma palavra apenas**, para facilitar a memorização e a recuperação da conta. {"\n\n"}
               - Ao prosseguir, você concorda com estes termos.
             </Text>
             <TouchableOpacity
