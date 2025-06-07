@@ -18,11 +18,14 @@ import {
   reauthenticateWithCredential,
   EmailAuthProvider,
   deleteUser,
+  db,
 } from "../../services/firebaseConfig"
 import {
   deleteDatabase,
   updateUserName,
-  updateUserEncryptedData
+  updateUserEncryptedData,
+  getPasswordsByUserId,
+  updatePasswordById
 } from "../../services/database"
 import { colors } from "../../utils/theme"
 import {
@@ -31,15 +34,15 @@ import {
 } from "../../utils/passwordUtils"
 import ErrorModal from "../../components/ErrorModal"
 import { useAuth } from "../../context/AuthContext"
-import { decryptWithPassword, encryptWithPassword, hashPassword } from "../../utils/encryption"
+import { decryptData, decryptWithPassword, encryptData, encryptWithPassword, hashPassword } from "../../utils/encryption"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { useFocusEffect } from "@react-navigation/native"
 import { Ionicons } from "@expo/vector-icons"
+import { collection, doc, getDocs, setDoc } from "firebase/firestore"
 
 const SettingsScreen: React.FC = () => {
   const router = useRouter()
-  const { localUser } = useAuth()
-
+  const { localUser, setLocalUser } = useAuth()
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
   const [currentPassword, setCurrentPassword] = useState("")
@@ -55,7 +58,9 @@ const SettingsScreen: React.FC = () => {
   const [confirmText, setConfirmText] = useState("")
   const [requirePasswordToView, setRequirePasswordToView] = useState(false)
   const [savePasswordsToCloud, setSavePasswordsToCloud] = useState(true)
-
+  const [reEncryptModalVisible, setReEncryptModalVisible] = useState(false)
+  const [reEncryptProgress, setReEncryptProgress] = useState<string[]>([])
+  
   const firebaseUser = auth.currentUser
 
   useEffect(() => {
@@ -171,9 +176,69 @@ const SettingsScreen: React.FC = () => {
     setIsGenerating(false)
   }
 
+ const handleReEncryptPasswords = async (newDecryptedMasterKey: string) => {
+    setReEncryptModalVisible(true)
+    setReEncryptProgress(["Iniciando recriptografia..."])
+
+    try {
+      // 1. Local passwords
+      const localPasswords = await getPasswordsByUserId(localUser!.id)
+      setReEncryptProgress(prev => [...prev, `🔒 Recriptografando ${localPasswords.length} senhas locais...`])
+
+      for (const local of localPasswords) {
+        const decryptedPassword = decryptData(local.encryptedPassword, localUser!.decryptedMasterKey!)
+        const decryptedAdditionalInfo = decryptData(local.additionalInfo, localUser!.decryptedMasterKey!)
+
+        const newEncryptedPassword = encryptData(decryptedPassword, newDecryptedMasterKey)
+        const newEncryptedAdditionalInfo = encryptData(decryptedAdditionalInfo, newDecryptedMasterKey)
+
+        await updatePasswordById(
+          local.id,
+          newEncryptedPassword,
+          local.serviceName,
+          local.username,
+          local.category,
+          newEncryptedAdditionalInfo
+        )
+      }
+
+      setReEncryptProgress(prev => [...prev, "✅ Senhas locais recriptografadas com sucesso!"])
+
+      // 2. Cloud passwords
+      const snap = await getDocs(collection(db, `users/${localUser!.firebaseUid}/passwords`))
+      setReEncryptProgress(prev => [...prev, `☁️ Recriptografando ${snap.size} senhas na nuvem...`])
+
+      for (const docSnap of snap.docs) {
+        const data = docSnap.data()
+
+        const decryptedPassword = decryptData(data.encryptedPassword, localUser!.decryptedMasterKey!)
+        const decryptedAdditionalInfo = decryptData(data.additionalInfo, localUser!.decryptedMasterKey!)
+
+        const newEncryptedPassword = encryptData(decryptedPassword, newDecryptedMasterKey)
+        const newEncryptedAdditionalInfo = encryptData(decryptedAdditionalInfo, newDecryptedMasterKey)
+
+        await setDoc(doc(db, `users/${localUser!.firebaseUid}/passwords/${docSnap.id}`), {
+          ...data,
+          encryptedPassword: newEncryptedPassword,
+          additionalInfo: newEncryptedAdditionalInfo,
+        })
+      }
+
+      setReEncryptProgress(prev => [...prev, "✅ Senhas na nuvem recriptografadas com sucesso!"])
+
+      setReEncryptProgress(prev => [...prev, "🎉 Processo concluído com sucesso!"])
+
+    } catch (error) {
+      console.error("❌ Erro durante recriptografia:", error)
+      setReEncryptProgress(prev => [...prev, "❌ Erro durante recriptografia! Nenhuma alteração foi persistida."])
+      throw error
+    }
+  }
+
   const handleUpdateProfile = async () => {
     if (!firebaseUser || !localUser) {
-      showModal("Você precisa estar logado para editar os dados.", "info")
+      console.log(firebaseUser, localUser)
+      showModal("Você precisa logar com e-mail e senha para realizar essa operação. (Login via Biometria não permitido para esta ação)", "info")
       return
     }
 
@@ -191,18 +256,41 @@ const SettingsScreen: React.FC = () => {
       }
 
       if (newPassword) {
-        await updatePassword(firebaseUser, newPassword)
-
-        const decryptedMasterKey = decryptWithPassword(localUser.encryptedMasterKey, currentPassword)
+        const decryptedMasterKey = decryptWithPassword(localUser.encryptedMasterKey, currentPassword);
         if (!decryptedMasterKey) {
-          showModal("Erro ao descriptografar a chave mestra.", "error")
-          return
+          showModal("Erro ao descriptografar a chave mestra.", "error");
+          return;
         }
 
-        const newEncryptedMasterKey = encryptWithPassword(decryptedMasterKey, newPassword)
-        const newHashedPassword = await hashPassword(newPassword)
+        const newEncryptedMasterKey = encryptWithPassword(decryptedMasterKey, newPassword);
+        const newHashedPassword = await hashPassword(newPassword);
 
-        await updateUserEncryptedData(localUser.email, newHashedPassword, newEncryptedMasterKey)
+        try {
+          // Primeiro tenta recriptografar tudo
+          await handleReEncryptPasswords(decryptedMasterKey);
+
+          // Agora que tudo foi OK, troque a senha do Firebase
+          await updatePassword(firebaseUser, newPassword);
+
+          // E agora atualize seus dados
+          await updateUserEncryptedData(localUser.email, newHashedPassword, newEncryptedMasterKey);
+
+          setLocalUser({
+            ...localUser,
+            decryptedMasterKey,
+            encryptedMasterKey: newEncryptedMasterKey,
+            password: newHashedPassword,
+          });
+
+          setReEncryptProgress(prev => [...prev, "✅ Dados de usuário atualizados com nova chave mestra."]);
+
+          showModal("✅ Dados atualizados com sucesso!", "success");
+
+        } catch (error) {
+          console.error("❌ Erro durante recriptografia ou update de dados. Abortando.");
+          showModal("❌ Não foi possível recriptografar as senhas. Nenhuma alteração foi persistida.", "error");
+          return;
+        }
       }
 
       await updateUserName(email, name)
@@ -274,56 +362,74 @@ const SettingsScreen: React.FC = () => {
         <Text style={styles.buttonText}>⚙️ Configurações Extras</Text>
       </TouchableOpacity>
 
-<Modal visible={extrasVisible} animationType="slide" transparent>
-  <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "rgba(0,0,0,0.5)" }}>
-    <View style={{ backgroundColor: "white", padding: 20, borderRadius: 10, width: "85%" }}>
+      <Modal visible={extrasVisible} animationType="slide" transparent>
+        <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "rgba(0,0,0,0.5)" }}>
+          <View style={{ backgroundColor: "white", padding: 20, borderRadius: 10, width: "85%" }}>
 
-      {/* Proteção de Visualização */}
-      <Text style={[styles.label, { marginTop: 10 }]}>
-        🔒 Proteção de Visualização: {requirePasswordToView ? "Ativada" : "Desativada"}
-      </Text>
-      <TouchableOpacity
-        style={[styles.button, { backgroundColor: colors.yellow }]}
-        onPress={toggleRequirePasswordToView}
-      >
-        <Text style={styles.buttonText}>
-          {requirePasswordToView ? "Desativar" : "Ativar"} Proteção de Visualização
-        </Text>
-      </TouchableOpacity>
+            {/* Proteção de Visualização */}
+            <Text style={[styles.label, { marginTop: 10 }]}>
+              🔒 Proteção de Visualização: {requirePasswordToView ? "Ativada" : "Desativada"}
+            </Text>
+            <TouchableOpacity
+              style={[styles.button, { backgroundColor: colors.yellow }]}
+              onPress={toggleRequirePasswordToView}
+            >
+              <Text style={styles.buttonText}>
+                {requirePasswordToView ? "Desativar" : "Ativar"} Proteção de Visualização
+              </Text>
+            </TouchableOpacity>
 
-      {/* Salvamento na Nuvem */}
-      <Text style={[styles.label, { marginTop: 10 }]}>
-        ☁️ Salvamento na Nuvem: {savePasswordsToCloud ? "Ativado" : "Desativado"}
-      </Text>
-      <TouchableOpacity
-        style={[styles.button, { backgroundColor: colors.yellow }]}
-        onPress={toggleSavePasswordsToCloud}
-      >
-        <Text style={styles.buttonText}>
-          {savePasswordsToCloud ? "Desativar" : "Ativar"} Salvamento na Nuvem
-        </Text>
-      </TouchableOpacity>
+            {/* Salvamento na Nuvem */}
+            <Text style={[styles.label, { marginTop: 10 }]}>
+              ☁️ Salvamento na Nuvem: {savePasswordsToCloud ? "Ativado" : "Desativado"}
+            </Text>
+            <TouchableOpacity
+              style={[styles.button, { backgroundColor: colors.yellow }]}
+              onPress={toggleSavePasswordsToCloud}
+            >
+              <Text style={styles.buttonText}>
+                {savePasswordsToCloud ? "Desativar" : "Ativar"} Salvamento na Nuvem
+              </Text>
+            </TouchableOpacity>
 
-      {/* Excluir conta */}
-      <TouchableOpacity
-        style={[styles.button, { backgroundColor: "#D32F2F", marginTop: 20 }]}
-        onPress={confirmDeleteAccount}
-      >
-        <Text style={styles.buttonText}>🗑 Excluir Conta e Dados</Text>
-      </TouchableOpacity>
+            {/* Excluir conta */}
+            <TouchableOpacity
+              style={[styles.button, { backgroundColor: "#D32F2F", marginTop: 20 }]}
+              onPress={confirmDeleteAccount}
+            >
+              <Text style={styles.buttonText}>🗑 Excluir Conta e Dados</Text>
+            </TouchableOpacity>
 
-      {/* Fechar */}
-      <TouchableOpacity
-        style={[styles.button, { backgroundColor: colors.mediumGray, marginTop: 10 }]}
-        onPress={() => setExtrasVisible(false)}
-      >
-        <Text style={styles.buttonText}>✖️ Fechar</Text>
-      </TouchableOpacity>
+            {/* Fechar */}
+            <TouchableOpacity
+              style={[styles.button, { backgroundColor: colors.mediumGray, marginTop: 10 }]}
+              onPress={() => setExtrasVisible(false)}
+            >
+              <Text style={styles.buttonText}>✖️ Fechar</Text>
+            </TouchableOpacity>
 
-    </View>
-  </View>
-</Modal>
+          </View>
+        </View>
+      </Modal>
 
+      <Modal visible={reEncryptModalVisible} transparent animationType="slide">
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <View style={{ backgroundColor: 'white', padding: 20, borderRadius: 10, width: '85%' }}>
+            <Text style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 10 }}>
+              🔄 Atualizando criptografia das senhas
+            </Text>
+            {reEncryptProgress.map((step, idx) => (
+              <Text key={idx} style={{ marginBottom: 5 }}>• {step}</Text>
+            ))}
+            <TouchableOpacity
+              style={[styles.button, { marginTop: 20 }]}
+              onPress={() => setReEncryptModalVisible(false)}
+            >
+              <Text style={styles.buttonText}>OK</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       <Modal
         visible={confirmDeleteVisible}

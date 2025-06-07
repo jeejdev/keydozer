@@ -6,23 +6,16 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
+  Modal,
+  ScrollView,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { createUserWithEmailAndPassword, db } from "../../services/firebaseConfig";
-import { setDoc, doc } from "firebase/firestore"
+import { setDoc, doc } from "firebase/firestore";
 import { addUser, checkUserExistsByEmail, deleteUserByEmail } from "../../services/database";
-
-import {
-  hashPassword,
-  generateRandomMasterKey,
-  encryptWithPassword,
-} from "../../utils/encryption";
+import { hashPassword, generateRandomMasterKey, encryptWithPassword } from "../../utils/encryption";
 import { colors } from "../../utils/theme";
-import {
-  checkPasswordStrength,
-  generateStrongPassword,
-  copyToClipboard,
-} from "../../utils/passwordUtils";
+import { checkPasswordStrength, generateStrongPassword, copyToClipboard } from "../../utils/passwordUtils";
 import ErrorModal from "../../components/ErrorModal";
 import { auth } from "../../services/firebaseConfig";
 
@@ -40,6 +33,9 @@ const RegisterScreen: React.FC = () => {
 
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [termsModalVisible, setTermsModalVisible] = useState(false);
 
   const { isValid, requirements } = checkPasswordStrength(password);
 
@@ -65,6 +61,11 @@ const RegisterScreen: React.FC = () => {
   };
 
   const handleRegister = async () => {
+    if (!termsAccepted) {
+      showModal("Você deve aceitar os Termos de Uso para criar sua conta.", "error");
+      return;
+    }
+
     if (!name || !email || !password || !confirmPassword) {
       showModal("Todos os campos obrigatórios devem ser preenchidos!", "error");
       return;
@@ -107,14 +108,7 @@ const RegisterScreen: React.FC = () => {
         createdAt: new Date().toISOString(),
       });
 
-      await addUser(
-        name,
-        email,
-        hashedPassword,
-        encryptedMasterKey,
-        passwordHint || null,
-        uid
-      );
+      await addUser(name, email, hashedPassword, encryptedMasterKey, passwordHint || null, uid);
 
       userCreatedLocally = true;
 
@@ -127,7 +121,6 @@ const RegisterScreen: React.FC = () => {
           params: { email, password, firstLogin: "true" },
         });
       }, 2000);
-
     } catch (error: any) {
       console.error("❌ Erro ao criar conta:", error);
 
@@ -254,6 +247,30 @@ const RegisterScreen: React.FC = () => {
         onChangeText={setPasswordHint}
       />
 
+      {/* Aceite dos Termos */}
+      <View style={{ flexDirection: "row", alignItems: "center", width: "90%", marginBottom: 10 }}>
+        <TouchableOpacity
+          onPress={() => setTermsAccepted(!termsAccepted)}
+          style={{
+            width: 24,
+            height: 24,
+            borderWidth: 1,
+            borderColor: colors.mediumGray,
+            marginRight: 10,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: termsAccepted ? colors.green : "#fff",
+          }}
+        >
+          {termsAccepted && <Text style={{ color: "#fff" }}>✓</Text>}
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => setTermsModalVisible(true)}>
+          <Text style={{ color: colors.mediumGray, textDecorationLine: "underline" }}>
+            Li e aceito os Termos de Uso
+          </Text>
+        </TouchableOpacity>
+      </View>
+
       <TouchableOpacity style={styles.button} onPress={handleRegister}>
         <Text style={styles.buttonText}>Criar Conta</Text>
       </TouchableOpacity>
@@ -268,6 +285,30 @@ const RegisterScreen: React.FC = () => {
         type={modalType}
         onClose={() => setModalVisible(false)}
       />
+
+      {/* Modal com os Termos de Uso */}
+      <Modal visible={termsModalVisible} animationType="slide">
+        <View style={{ flex: 1, padding: 20, backgroundColor: "#fff" }}>
+          <ScrollView>
+            <Text style={{ fontSize: 18, fontWeight: "bold", marginBottom: 10 }}>
+              Termos de Uso
+            </Text>
+            <Text style={{ fontSize: 14, color: colors.darkGray }}>
+              - O usuário é o único responsável por manter sua senha mestre em segurança. {"\n\n"}
+              - Em caso de perda ou esquecimento da senha mestre, não será possível recuperar as senhas armazenadas devido à utilização de criptografia forte. {"\n\n"}
+              - O aplicativo permite apenas a recuperação da conta via redefinição de senha, com perda de todas as senhas previamente salvas. {"\n\n"}
+              - O desenvolvedor do aplicativo não se responsabiliza por perdas de dados causadas por negligência do usuário em guardar sua senha mestre. {"\n\n"}
+              - Ao prosseguir, você concorda com estes termos.
+            </Text>
+            <TouchableOpacity
+              style={[styles.button, { marginTop: 20 }]}
+              onPress={() => setTermsModalVisible(false)}
+            >
+              <Text style={styles.buttonText}>Fechar</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+      </Modal>
     </View>
   );
 };

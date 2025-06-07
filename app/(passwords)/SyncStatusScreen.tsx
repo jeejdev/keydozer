@@ -190,7 +190,7 @@ const SyncStatusScreen = () => {
           const diff = {
             id: local.id,
             service: decryptedService,
-            status: isDifferent ? "Divergente (conteúdo diferente)" : "Sincronizado",
+            status: (isDifferent ? "Divergente (conteúdo diferente)" : "Sincronizado") as SyncStatus,
             localPassword: decryptedLocalPassword,
             remotePassword: decryptedRemotePassword,
             localFullData: local,
@@ -296,7 +296,7 @@ const SyncStatusScreen = () => {
       />
 
       <TouchableOpacity style={styles.button} onPress={compareData}>
-        <Text style={styles.buttonText}>🔁 Atualizar Status</Text>
+        <Text style={styles.buttonText}>🔁 Verificar status das senhas</Text>
       </TouchableOpacity>
 
       {diffsToSync.length > 0 && (
