@@ -9,7 +9,9 @@ const getSaltedPassword = (password: string): string => {
 export const generateRandomMasterKey = async (): Promise<string> => {
   try {
     const bytes = await getRandomBytesAsync(32)
-    const key = Array.from(bytes).map((b) => ("0" + b.toString(16)).slice(-2)).join("")
+    const key = Array.from(bytes)
+      .map((b) => ("0" + b.toString(16)).slice(-2))
+      .join("")
     return key
   } catch (error) {
     console.error("Erro ao gerar masterKey:", error)
@@ -42,6 +44,13 @@ export const decryptWithPassword = (encryptedData: string, password: string): st
       console.warn("⚠️ Tentou descriptografar dado inexistente.")
       return "[DADO_INEXISTENTE]"
     }
+
+    // Dado vazio (null ou string vazia) não deve ser processado
+    if (!encryptedData.startsWith("U2FsdGVk")) {
+      console.warn("⚠️ Dado não criptografado corretamente. Retornando como está.")
+      return encryptedData
+    }
+
     const salted = getSaltedPassword(password)
     console.log("🔑 Tentando descriptografar com senha...")
     console.log("🔐 Dado criptografado:", encryptedData)
@@ -63,18 +72,33 @@ export const decryptData = (encryptedData: string, masterKey: string): string =>
       console.warn("⚠️ Tentou descriptografar dado inexistente.")
       return "[DADO_INEXISTENTE]"
     }
+
+    // Dado claramente não criptografado (registro antigo ou string pura)
+    if (!encryptedData.startsWith("U2FsdGVk")) {
+      console.warn("⚠️ Dado não criptografado corretamente. Retornando como está.")
+      return encryptedData
+    }
+
     if (!masterKey) {
       console.warn("⚠️ masterKey ausente ao descriptografar dados.")
       return "[MASTER_KEY_AUSENTE]"
     }
+
     console.log("🔑 Tentando descriptografar com masterKey...")
     console.log("🔐 Dado criptografado:", encryptedData)
     console.log("🔑 masterKey:", masterKey)
+
     const bytes = CryptoJS.AES.decrypt(encryptedData, masterKey)
     const result = bytes.toString(CryptoJS.enc.Utf8)
+
     console.log("🔓 Dado descriptografado:", result)
-    if (!result) throw new Error("Descriptografia falhou: dado vazio ou chave incorreta.")
-    return result
+
+    // Só lança erro se o resultado for null ou undefined
+    if (result === null || result === undefined) {
+      throw new Error("Descriptografia falhou: dado inválido ou chave incorreta.")
+    }
+
+    return result // "" (string vazia) é um valor válido e permitido
   } catch (error) {
     console.error("❌ Erro ao descriptografar com masterKey:", error)
     return "[DESCRIPTOGRAFIA_FALHOU]"

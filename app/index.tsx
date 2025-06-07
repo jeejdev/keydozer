@@ -96,6 +96,7 @@ const LoginScreen: React.FC = () => {
       console.log("🔐 Iniciando login com:", email)
       let localUser = await getUserByEmail(email)
 
+      // Mantém login Firebase ativo
       await loginUser(email, password)
       const firebaseUser = auth.currentUser
       if (!firebaseUser) throw new Error("Usuário Firebase não disponível")
@@ -227,6 +228,9 @@ const LoginScreen: React.FC = () => {
         return
       }
 
+      // Não exige autenticação Firebase na biometria
+      console.log("⚠️ Login biométrico realizado apenas localmente.")
+
       setLocalUser({ ...localUser, decryptedMasterKey })
       router.replace("/home")
     } catch (error) {
@@ -315,34 +319,7 @@ const LoginScreen: React.FC = () => {
                 style={[styles.button, { backgroundColor: colors.blue }]}
                 onPress={async () => {
                   const allUsers = await getAllUsers()
-                  console.log("🔍 ==== USUÁRIOS DO SQLITE ====\n")
-
-                  for (const user of allUsers) {
-                    console.log(`👤 Nome: ${user.name}`)
-                    console.log(`📧 Email: ${user.email}`)
-                    console.log(`🆔 ID: ${user.id}`)
-                    console.log(`🔐 MasterKey Criptografada: ${user.encryptedMasterKey}`)
-                    console.log(`💡 Dica de senha: ${user.passwordHint || "Nenhuma"}`)
-                    console.log(`📅 Criado em: ${user.createdAt}`)
-                    console.log("---------------------------")
-
-                    const passwords = await getPasswordsByUserId(user.id)
-                    if (passwords.length === 0) {
-                      console.log("🔓 Nenhuma senha cadastrada.\n")
-                      console.log("==============================================")
-                    } else {
-                      console.log(`🔐 Senhas cadastradas:`)
-                      passwords.forEach((pw, index) => {
-                        console.log(`\n  ${index + 1}) Serviço: ${pw.serviceName}`)
-                        console.log(`     🆔 ID: ${pw.id}`)
-                        console.log(`     👤 Username: ${pw.username}`)
-                        console.log(`     🗂 Categoria: ${pw.category}`)
-                        console.log(`     📝 Notas: ${pw.additionalInfo}`)
-                        console.log(`     🔑 Senha: ${pw.encryptedPassword}`)
-                      })
-                      console.log("\n==============================\n")
-                    }
-                  }
+                  console.log("🔍 ==== USUÁRIOS DO SQLITE ====\n", allUsers)
                 }}
               >
                 <Text style={styles.buttonText}>[DEV] Ver Banco Local</Text>

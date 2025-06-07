@@ -97,37 +97,54 @@ const reauthenticateUser = async (inputPassword: string): Promise<boolean> => {
   }
 };
 
+const loadPasswords = async () => {
+  if (!localUser) return;
+  setLoading(true);
 
-  const loadPasswords = async () => {
-    if (!localUser) return
-    setLoading(true)
+  try {
+    const passwords = await getPasswordsByUserId(localUser.id);
+    const grouped: Record<string, any[]> = {};
 
-    try {
-      const passwords = await getPasswordsByUserId(localUser.id)
-      const grouped: Record<string, any[]> = {}
+    for (const entry of passwords) {
+      const decryptedPassword = decryptData(entry.encryptedPassword, localUser.decryptedMasterKey || "");
+      const category = entry.category?.trim() || "Outros";
+      if (!grouped[category]) grouped[category] = [];
 
-      for (const entry of passwords) {
-        const decryptedPassword = decryptData(entry.encryptedPassword, localUser.decryptedMasterKey || "")
-        const category = entry.category?.trim() || "Outros"
-        if (!grouped[category]) grouped[category] = []
-
-        const decryptedadditionalInfo = decryptData(entry.additionalInfo || "", localUser.decryptedMasterKey || "")
-        grouped[category].push({
-          ...entry,
-          decryptedPassword,
-          decryptedadditionalInfo,
-        })
+      // PATCH: tratamento seguro do additionalInfo
+      let decryptedadditionalInfo = "";
+      try {
+        if (entry.additionalInfo?.startsWith("U2FsdGVk")) {
+          console.log(`🔑 Tentando descriptografar additionalInfo da senha ID ${entry.id}...`);
+          decryptedadditionalInfo = decryptData(entry.additionalInfo, localUser.decryptedMasterKey || "");
+          console.log(`🔓 AdditionalInfo descriptografado:`, decryptedadditionalInfo);
+        } else {
+          if (entry.additionalInfo) {
+            console.warn(`⚠️ Campo additionalInfo da senha ID ${entry.id} não estava criptografado. Usando texto puro.`);
+          }
+          decryptedadditionalInfo = entry.additionalInfo || "";
+        }
+      } catch (e) {
+        console.error(`❌ Erro ao descriptografar additionalInfo da senha ID ${entry.id}:`, e);
+        decryptedadditionalInfo = "[Erro de descriptografia]";
       }
 
-      const sections = Object.entries(grouped).map(([title, data]) => ({ title, data }))
-      setGroupedPasswords(sections)
-    } catch (error) {
-      console.error("Erro ao carregar senhas:", error)
-      showModal("Erro ao carregar senhas.", "error")
+      grouped[category].push({
+        ...entry,
+        decryptedPassword,
+        decryptedadditionalInfo,
+      });
     }
 
-    setLoading(false)
+    const sections = Object.entries(grouped).map(([title, data]) => ({ title, data }));
+    setGroupedPasswords(sections);
+  } catch (error) {
+    console.error("Erro ao carregar senhas:", error);
+    showModal("Erro ao carregar senhas.", "error");
   }
+
+  setLoading(false);
+};
+
 
 useFocusEffect(
   React.useCallback(() => {
