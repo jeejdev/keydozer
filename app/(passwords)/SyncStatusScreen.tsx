@@ -66,6 +66,7 @@ const SyncStatusScreen = () => {
   const [cloudCount, setCloudCount] = useState(0);
   const [passwordPromptVisible, setPasswordPromptVisible] = useState(false);
   const [inputPassword, setInputPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     console.log("[SyncStatusScreen] Montando tela");
@@ -234,14 +235,35 @@ const SyncStatusScreen = () => {
   if (passwordPromptVisible) {
     return (
       <View style={styles.container}>
-        <Text style={styles.title}>🔑 Digite sua senha para visualizar o status de sincronização</Text>
-        <TextInput
-          placeholder="Senha"
-          secureTextEntry
-          style={styles.input}
-          value={inputPassword}
-          onChangeText={setInputPassword}
-        />
+        <Text style={styles.title}>
+          🔑 Digite a sua senha atual para verificar os status das suas senhas local e na nuvem
+        </Text>
+
+        <View style={{ width: "100%", marginBottom: 10 }}>
+          <Text style={{ fontSize: 14, color: colors.darkGray, marginBottom: 5 }}>Senha</Text>
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              borderWidth: 1,
+              borderColor: colors.mediumGray,
+              borderRadius: 8,
+              backgroundColor: "#fff",
+            }}
+          >
+            <TextInput
+              style={{ flex: 1, padding: 10 }}
+              placeholder="Senha"
+              secureTextEntry={!showPassword}
+              value={inputPassword}
+              onChangeText={setInputPassword}
+            />
+            <TouchableOpacity onPress={() => setShowPassword(prev => !prev)} style={{ padding: 10 }}>
+              <Text style={{ fontSize: 16 }}>{showPassword ? "🙈" : "👁️"}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
         <TouchableOpacity style={styles.button} onPress={handleDecryptMasterKey}>
           <Text style={styles.buttonText}>Confirmar</Text>
         </TouchableOpacity>

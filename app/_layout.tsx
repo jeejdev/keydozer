@@ -24,6 +24,7 @@ import ExportPasswordsScreen from "./(passwords)/ExportPasswordsScreen"
 import ScanQRCodeScreen from "./(passwords)/ScanQRCodeScreen"
 import SecurityReportScreen from "./(passwords)/SecurityReportScreen"
 import SyncStatusScreen from "./(passwords)/SyncStatusScreen"
+import SharePasswordsScreen from "./(passwords)/SharePasswordsScreen"
 
 const Drawer = createDrawerNavigator()
 
@@ -121,6 +122,14 @@ const DrawerNavigator = () => {
         options={{
           title: "Relatórios de Segurança",
           drawerIcon: ({ color }) => <Ionicons name="bar-chart-outline" size={24} color={color} />,
+        }}
+      />
+      <Drawer.Screen
+        name="compartilhar-senhas"
+        component={SharePasswordsScreen}
+        options={{
+          title: "Compartilhar Senhas",
+          drawerIcon: ({ color }) => <Ionicons name="share-social-outline" size={24} color={color} />,
         }}
       />
       <Drawer.Screen

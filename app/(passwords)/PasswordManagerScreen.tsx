@@ -52,6 +52,7 @@ const PasswordManagerScreen = () => {
   const [savePasswordsToCloud, setSavePasswordsToCloud] = useState(false)
   const [passwordInput, setPasswordInput] = useState("")
   const [showPassword, setShowPassword] = useState(false)
+  const [showPasswordInput, setShowPasswordInput] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null)
   const [qrData, setQrData] = useState<string | null>(null)
   const [qrModalVisible, setQrModalVisible] = useState(false)
@@ -228,103 +229,104 @@ const confirmPasswordView = async () => {
     navigation.goBack()
   }
 
-const handleSave = async () => {
-  if (!serviceName || !password || !localUser) {
-    showModal("Preencha todos os campos obrigatórios.", "error")
-    return
-  }
-
-  console.log("📝 Iniciando handleSave...")
-  console.log("👤 [handleSave] localUser completo:", JSON.stringify(localUser, null, 2))
-
-  try {
-    const encryptedPassword = encryptData(password, localUser.decryptedMasterKey || "")
-    const encryptedadditionalInfo = encryptData(additionalInfo || "", localUser.decryptedMasterKey || "")
-
-    let newPasswordId: number | null = null
-    let createdAt = new Date().toISOString() // Padrão se for novo
-
-    if (isEditing && selectedId !== null) {
-      console.log("✏️ Editando senha local ID:", selectedId)      
-
-      // Busca o registro existente para manter o createdAt
-      const existing = groupedPasswords
-        .flatMap(section => section.data)
-        .find(item => item.id === selectedId)
-
-      if (existing && existing.createdAt) {
-        createdAt = existing.createdAt
-      }
-
-      await updatePasswordById(
-        selectedId,
-        encryptedPassword,
-        serviceName,
-        username,
-        category,
-        encryptedadditionalInfo
-      )
-      newPasswordId = selectedId
-    } else {
-      console.log("➕ Adicionando nova senha local...")
-      newPasswordId = await addPassword(
-        localUser.id,
-        encryptedPassword,
-        serviceName,
-        username,
-        category,
-        encryptedadditionalInfo
-      )
-      console.log("✅ Senha local salva. ID:", newPasswordId)
+  const handleSave = async () => {
+    if (!serviceName || !password || !localUser) {
+      showModal("Preencha todos os campos obrigatórios.", "error")
+      return
     }
 
-    console.log("☁️ savePasswordsToCloud:", savePasswordsToCloud)
+    console.log("📝 Iniciando handleSave...")
+    console.log("👤 [handleSave] localUser completo:", JSON.stringify(localUser, null, 2))
 
-    const firebaseUid = localUser.firebaseUid || auth.currentUser?.uid
+    try {
+      const encryptedPassword = encryptData(password, localUser.decryptedMasterKey || "")
+      const encryptedAdditionalInfo = encryptData(additionalInfo || "", localUser.decryptedMasterKey || "")
+      const encryptedServiceName = encryptData(serviceName, localUser.decryptedMasterKey || "")
+      const encryptedUsername = encryptData(username, localUser.decryptedMasterKey || "")
+      const encryptedCategory = encryptData(category || "Outros", localUser.decryptedMasterKey || "")
 
-    console.log("👤 localUser.firebaseUid:", localUser.firebaseUid)
-    console.log("👤 auth.currentUser.uid:", auth.currentUser?.uid)
+      let newPasswordId: number | null = null
+      let createdAt = new Date().toISOString() // Padrão se for novo
 
-    if (savePasswordsToCloud && firebaseUid) {
-      console.log("☁️ Salvando senha na nuvem para UID:", firebaseUid)
+      if (isEditing && selectedId !== null) {
+        console.log("✏️ Editando senha local ID:", selectedId)      
 
-      const passwordRef = doc(db, "users", firebaseUid, "passwords", `${newPasswordId}`)
+        // Busca o registro existente para manter o createdAt
+        const existing = groupedPasswords
+          .flatMap(section => section.data)
+          .find(item => item.id === selectedId)
 
-      const firestoreData: any = {
-        serviceName,
-        password: encryptedPassword,
-        username,
-        category,
-        additionalInfo: encryptedadditionalInfo,
-        createdAt
+        if (existing && existing.createdAt) {
+          createdAt = existing.createdAt
+        }
+
+        await updatePasswordById(
+          selectedId,
+          encryptedPassword,
+          serviceName,
+          username,
+          category,
+          encryptedAdditionalInfo
+        )
+        newPasswordId = selectedId
+      } else {
+        console.log("➕ Adicionando nova senha local...")
+        newPasswordId = await addPassword(
+          localUser.id,
+          encryptedPassword,
+          serviceName,
+          username,
+          category,
+          encryptedAdditionalInfo
+        )
+        console.log("✅ Senha local salva. ID:", newPasswordId)
       }
 
-      if (isEditing) {
-        firestoreData.updatedAt = new Date().toISOString()
+      console.log("☁️ savePasswordsToCloud:", savePasswordsToCloud)
+
+      const firebaseUid = localUser.firebaseUid || auth.currentUser?.uid
+
+      console.log("👤 localUser.firebaseUid:", localUser.firebaseUid)
+      console.log("👤 auth.currentUser.uid:", auth.currentUser?.uid)
+
+      if (savePasswordsToCloud && firebaseUid) {
+        console.log("☁️ Salvando senha na nuvem para UID:", firebaseUid)
+
+        const passwordRef = doc(db, "users", firebaseUid, "passwords", `${newPasswordId}`)
+
+        const firestoreData: any = {
+          serviceName: encryptedServiceName,
+          password: encryptedPassword,
+          username: encryptedUsername,
+          category: encryptedCategory,
+          additionalInfo: encryptedAdditionalInfo,
+          createdAt
+        }
+
+        if (isEditing) {
+          firestoreData.updatedAt = new Date().toISOString()
+        }
+
+        try {
+          await setDoc(passwordRef, firestoreData)
+          console.log("✅ Senha salva/atualizada na nuvem com sucesso.")
+        } catch (e) {
+          console.error("❌ Erro ao salvar na nuvem:", e)
+        }
+      } else {
+        console.warn("⚠️ Salvamento na nuvem não realizado (configuração ou autenticação inválida).")
       }
 
-      try {
-        await setDoc(passwordRef, firestoreData)
-        console.log("✅ Senha salva/atualizada na nuvem com sucesso.")
-      } catch (e) {
-        console.error("❌ Erro ao salvar na nuvem:", e)
-      }
-    } else {
-      console.warn("⚠️ Salvamento na nuvem não realizado (configuração ou autenticação inválida).")
+      showModal("Senha salva com sucesso!", "success")
+      setModalVisible(false)
+      resetForm()
+      loadPasswords()
+
+    } catch (e) {
+      console.error("❌ Erro ao salvar:", e)
+      showModal("Erro ao salvar senha.", "error")
     }
-
-    showModal("Senha salva com sucesso!", "success")
-    setModalVisible(false)
-    resetForm()
-    loadPasswords()
-
-  } catch (e) {
-    console.error("❌ Erro ao salvar:", e)
-    showModal("Erro ao salvar senha.", "error")
   }
-}
-
-
 
   const handleDelete = async (id: number) => {
     Alert.alert("Confirmar exclusão", "Tem certeza que deseja excluir esta senha?", [
@@ -506,130 +508,136 @@ const handleSave = async () => {
         <Text style={styles.buttonText}>+ Adicionar Senha</Text>
       </TouchableOpacity>
 
-      <Modal visible={modalVisible} animationType="slide">
-  <ScrollView contentContainerStyle={styles.modalContainer}>
-    <Text style={styles.title}>{isEditing ? "Editar Senha" : "Nova Senha"}</Text>
+  <Modal visible={modalVisible} animationType="slide">
+    <ScrollView contentContainerStyle={styles.modalContainer}>
+      <Text style={styles.title}>{isEditing ? "Editar Senha" : "Nova Senha"}</Text>
 
-    <View style={{ marginBottom: 10 }}>
-      <Text style={{ marginBottom: 4 }}>🔒 Nome do serviço</Text>
-      <TextInput style={styles.input} value={serviceName} onChangeText={setServiceName} />
-    </View>
+      <View style={{ marginBottom: 10 }}>
+        <Text style={{ marginBottom: 4 }}>🔒 Nome do serviço</Text>
+        <TextInput style={styles.input} value={serviceName} onChangeText={setServiceName} />
+      </View>
 
-    <View style={{ marginBottom: 10 }}>
-      <Text style={{ marginBottom: 4 }}>🔑 Senha</Text>
-      <View style={{ flexDirection: "row", alignItems: "center" }}>
+      <View style={{ marginBottom: 10 }}>
+        <Text style={{ marginBottom: 4 }}>🔑 Senha</Text>
+        <View style={{ flexDirection: "row", alignItems: "center" }}>
+          <TextInput
+            style={[styles.input, { flex: 1 }]}
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry={!showPassword}
+          />
+          <TouchableOpacity onPress={() => setShowPassword(prev => !prev)} style={{ marginLeft: 10 }}>
+            <Ionicons name={showPassword ? "eye-off" : "eye"} size={24} color={colors.darkGray} />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <View style={{ marginBottom: 10 }}>
+        <Text style={{ marginBottom: 4 }}>👤 Nome de usuário</Text>
+        <TextInput style={styles.input} value={username} onChangeText={setUsername} />
+      </View>
+
+      <View style={{ marginBottom: 10 }}>
+        <Text style={{ marginBottom: 4 }}>🗂 Categoria</Text>
+        <TextInput style={styles.input} value={category} onChangeText={setCategory} />
+      </View>
+
+      <View style={{ marginBottom: 10 }}>
+        <Text style={{ marginBottom: 4 }}>📝 Informações adicionais</Text>
         <TextInput
-          style={[styles.input, { flex: 1 }]}
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry={!showPassword}
+          style={[styles.input, { height: 80 }]}
+          multiline
+          value={additionalInfo}
+          onChangeText={setAdditionalInfo}
         />
-        <TouchableOpacity onPress={() => setShowPassword(prev => !prev)} style={{ marginLeft: 10 }}>
-          <Ionicons name={showPassword ? "eye-off" : "eye"} size={24} color={colors.darkGray} />
+      </View>
+
+      <TouchableOpacity style={styles.button} onPress={handleSave}>
+        <Text style={styles.buttonText}>Salvar</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={[styles.button, { backgroundColor: colors.mediumGray }]}
+        onPress={() => setModalVisible(false)}
+      >
+        <Text style={styles.buttonText}>Cancelar</Text>
+      </TouchableOpacity>
+
+      {isEditing && selectedId !== null && (
+        <TouchableOpacity
+          style={[styles.button, { backgroundColor: "#D32F2F" }]}
+          onPress={() => handleDelete(selectedId)}
+        >
+          <Text style={[styles.buttonText, { color: "#fff" }]}>Excluir</Text>
+        </TouchableOpacity>
+      )}
+    </ScrollView>
+  </Modal>
+
+  <Modal visible={passwordPromptVisible} animationType="fade" transparent>
+    <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "rgba(0,0,0,0.5)" }}>
+      <View style={{ backgroundColor: "white", padding: 20, borderRadius: 10, width: "85%" }}>
+        <Text style={{ fontSize: 16, fontWeight: "bold", marginBottom: 10 }}>
+          🔒 Proteção ativada
+        </Text>
+        <Text style={{ marginBottom: 10 }}>
+          Digite sua senha para visualizar as senhas salvas:
+        </Text>
+        <View style={{ flexDirection: "row", alignItems: "center" }}>
+          <TextInput
+            style={[styles.input, { flex: 1 }]}
+            placeholder="Senha da conta"
+            value={passwordInput}
+            onChangeText={setPasswordInput}
+            secureTextEntry={!showPasswordInput}
+          />
+          <TouchableOpacity onPress={() => setShowPasswordInput(prev => !prev)} style={{ marginLeft: 10 }}>
+            <Ionicons name={showPasswordInput ? "eye-off" : "eye"} size={24} color={colors.darkGray} />
+          </TouchableOpacity>
+        </View>
+        <TouchableOpacity style={[styles.button, { marginTop: 10 }]} onPress={confirmPasswordView}>
+          <Text style={styles.buttonText}>Confirmar</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.button, { backgroundColor: "#D32F2F", marginTop: 10 }]}
+          onPress={handleCancelPasswordPrompt}
+        >
+          <Text style={{ color: "#fff", fontWeight: "bold" }}>Cancelar</Text>
         </TouchableOpacity>
       </View>
     </View>
+  </Modal>
 
-    <View style={{ marginBottom: 10 }}>
-      <Text style={{ marginBottom: 4 }}>👤 Nome de usuário</Text>
-      <TextInput style={styles.input} value={username} onChangeText={setUsername} />
+
+  <Modal visible={!!weakPasswordInfo} transparent animationType="slide">
+    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: "rgba(0,0,0,0.5)" }}>
+      <View style={{ backgroundColor: "#fff", padding: 20, borderRadius: 10, width: "85%" }}>
+        <Text style={{ fontSize: 18, fontWeight: "bold", marginBottom: 10 }}>
+          ⚠ Senha fraca detectada
+        </Text>
+        <Text style={{ marginBottom: 10 }}>
+          A senha de <Text style={{ fontWeight: "bold" }}>{weakPasswordInfo?.service}</Text> apresenta os seguintes problemas:
+        </Text>
+        {weakPasswordInfo?.reasons.map((reason, idx) => (
+          <Text key={idx}>• {reason}</Text>
+        ))}
+        <TouchableOpacity style={[styles.button, { marginTop: 20 }]} onPress={() => setWeakPasswordInfo(null)}>
+          <Text style={styles.buttonText}>Entendi</Text>
+        </TouchableOpacity>
+      </View>
     </View>
+  </Modal>
 
-    <View style={{ marginBottom: 10 }}>
-      <Text style={{ marginBottom: 4 }}>🗂 Categoria</Text>
-      <TextInput style={styles.input} value={category} onChangeText={setCategory} />
-    </View>
-
-    <View style={{ marginBottom: 10 }}>
-      <Text style={{ marginBottom: 4 }}>📝 Informações adicionais</Text>
-      <TextInput
-        style={[styles.input, { height: 80 }]}
-        multiline
-        value={additionalInfo}
-        onChangeText={setAdditionalInfo}
-      />
-    </View>
-
-    <TouchableOpacity style={styles.button} onPress={handleSave}>
-      <Text style={styles.buttonText}>Salvar</Text>
-    </TouchableOpacity>
-
-    <TouchableOpacity
-      style={[styles.button, { backgroundColor: colors.mediumGray }]}
-      onPress={() => setModalVisible(false)}
-    >
-      <Text style={styles.buttonText}>Cancelar</Text>
-    </TouchableOpacity>
-
-    {isEditing && selectedId !== null && (
-      <TouchableOpacity
-        style={[styles.button, { backgroundColor: "#D32F2F" }]}
-        onPress={() => handleDelete(selectedId)}
-      >
-        <Text style={[styles.buttonText, { color: "#fff" }]}>Excluir</Text>
-      </TouchableOpacity>
-    )}
-  </ScrollView>
-</Modal>
-
-
-      <Modal visible={passwordPromptVisible} animationType="fade" transparent>
-        <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "rgba(0,0,0,0.5)" }}>
-          <View style={{ backgroundColor: "white", padding: 20, borderRadius: 10, width: "85%" }}>
-            <Text style={{ fontSize: 16, fontWeight: "bold", marginBottom: 10 }}>
-              🔒 Proteção ativada
-            </Text>
-            <Text style={{ marginBottom: 10 }}>
-              Digite sua senha para visualizar as senhas salvas:
-            </Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Senha da conta"
-              value={passwordInput}
-              onChangeText={setPasswordInput}
-              secureTextEntry
-            />
-            <TouchableOpacity style={[styles.button, { marginTop: 10 }]} onPress={confirmPasswordView}>
-              <Text style={styles.buttonText}>Confirmar</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.button, { backgroundColor: "#D32F2F", marginTop: 10 }]} onPress={handleCancelPasswordPrompt}
-            >
-              <Text style={{ color: "#fff", fontWeight: "bold" }}>Cancelar</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal visible={!!weakPasswordInfo} transparent animationType="slide">
-          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: "rgba(0,0,0,0.5)" }}>
-            <View style={{ backgroundColor: "#fff", padding: 20, borderRadius: 10, width: "85%" }}>
-              <Text style={{ fontSize: 18, fontWeight: "bold", marginBottom: 10 }}>
-                ⚠ Senha fraca detectada
-              </Text>
-              <Text style={{ marginBottom: 10 }}>
-                A senha de <Text style={{ fontWeight: "bold" }}>{weakPasswordInfo?.service}</Text> apresenta os seguintes problemas:
-              </Text>
-              {weakPasswordInfo?.reasons.map((reason, idx) => (
-                <Text key={idx}>• {reason}</Text>
-              ))}
-              <TouchableOpacity style={[styles.button, { marginTop: 20 }]} onPress={() => setWeakPasswordInfo(null)}>
-                <Text style={styles.buttonText}>Entendi</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-      </Modal>
-
-      <ErrorModal
-        visible={errorVisible}
-        message={modalMessage}
-        type={modalType as any}
-        onClose={() => {
-          setErrorVisible(false)
-          if (modalType === "error") setPasswordPromptVisible(true)
-        }}
-      />
-    </View>
+  <ErrorModal
+  visible={errorVisible}
+  message={modalMessage}
+  type={modalType as any}
+  onClose={() => {
+    setErrorVisible(false)
+    if (modalType === "error") setPasswordPromptVisible(true)
+  }}
+  />
+  </View>
   )
 }
 

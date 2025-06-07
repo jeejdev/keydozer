@@ -106,6 +106,7 @@ const RegisterScreen: React.FC = () => {
         password: hashedPassword,
         passwordHint: passwordHint || "",
         createdAt: new Date().toISOString(),
+        firebaseUid: uid
       });
 
       await addUser(name, email, hashedPassword, encryptedMasterKey, passwordHint || null, uid);
