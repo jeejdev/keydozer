@@ -116,7 +116,9 @@ const LoginScreen: React.FC = () => {
           await hashPassword(password),
           userData.encryptedMasterKey,
           userData.passwordHint || null,
-          firebaseUser.uid
+          firebaseUser.uid,
+          userData.has_2fa === 1,
+          userData.twofa_secret || null
         )
         localUser = await getUserByEmail(email)
         if (!localUser) {

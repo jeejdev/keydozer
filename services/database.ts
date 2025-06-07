@@ -15,6 +15,8 @@ interface UserRow {
   password_hint: string | null
   created_at: string
   firebase_uid: string | null
+  has_2fa: number
+  twofa_secret: string | null
 }
 
 interface PasswordRow {
@@ -43,7 +45,9 @@ export const initDB = async (): Promise<void> => {
       encrypted_master_key TEXT NOT NULL,
       password_hint TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      firebase_uid TEXT
+      firebase_uid TEXT,
+      has_2fa INTEGER DEFAULT 0,
+      twofa_secret TEXT DEFAULT NULL
     );
 
     CREATE TABLE IF NOT EXISTS passwords (
@@ -69,7 +73,9 @@ export const addUser = async (
   password: string,
   encryptedMasterKey: string,
   passwordHint: string | null = null,
-  firebaseUid: string | null = null
+  firebaseUid: string | null = null,
+  has2FA: boolean = false,
+  twofaSecret: string | null = null
 ): Promise<number> => {
   console.log("📥 Chamando addUser com:", name, email)
 
@@ -83,13 +89,17 @@ export const addUser = async (
 
   try {
     const result = await db.runAsync(
-      "INSERT INTO users (name, email, password, encrypted_master_key, password_hint, firebase_uid) VALUES (?, ?, ?, ?, ?, ?)",
+      `INSERT INTO users 
+      (name, email, password, encrypted_master_key, password_hint, firebase_uid, has_2fa, twofa_secret) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       name,
       email,
       password,
       encryptedMasterKey,
       passwordHint,
-      firebaseUid
+      firebaseUid,
+      has2FA ? 1 : 0,
+      twofaSecret
     )
 
     console.log("✅ Usuário local salvo com ID:", result.lastInsertRowId)
@@ -98,6 +108,20 @@ export const addUser = async (
     console.error("❌ Erro ao salvar no banco local:", error)
     throw error
   }
+}
+
+export const updateUser2FA = async (
+  userId: number,
+  has2FA: boolean,
+  twofaSecret: string | null
+): Promise<void> => {
+  if (!db) await initDB()
+  await db.runAsync(
+    `UPDATE users SET has_2fa = ?, twofa_secret = ? WHERE id = ?`,
+    has2FA ? 1 : 0,
+    twofaSecret,
+    userId
+  )
 }
 
 export const checkUserExistsByEmail = async (email: string): Promise<boolean> => {

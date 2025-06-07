@@ -109,7 +109,16 @@ const RegisterScreen: React.FC = () => {
         firebaseUid: uid
       });
 
-      await addUser(name, email, hashedPassword, encryptedMasterKey, passwordHint || null, uid);
+      await addUser(
+        name,
+        email,
+        hashedPassword,
+        encryptedMasterKey,
+        passwordHint || null,
+        uid,
+        false,
+        null
+      );
 
       userCreatedLocally = true;
 
