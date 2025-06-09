@@ -13,6 +13,7 @@ import { useNavigation, DrawerActions } from "@react-navigation/native"
 import { Ionicons } from "@expo/vector-icons"
 import { colors } from "../../utils/theme"
 import { NetworkInfo } from "react-native-network-info"
+import AsyncStorage from "@react-native-async-storage/async-storage"
 
 // Tipagem das props do componente FeatureItem
 type FeatureItemProps = {
@@ -36,6 +37,13 @@ const HomeScreen: React.FC = () => {
     const checkWifi = async () => {
       try {
         console.log("🔍 Iniciando verificação de rede Wi-Fi...")
+
+        // Checar se usuário já marcou "Estou ciente"
+        const skipAlert = await AsyncStorage.getItem("skipPublicWifiAlert")
+        if (skipAlert === "true") {
+          console.log("🚫 Usuário optou por não exibir mais o alerta de Wi-Fi público.")
+          return
+        }
 
         if (Platform.OS === "android") {
           console.log("📱 Plataforma Android detectada. Verificando permissões...")
@@ -93,7 +101,17 @@ const HomeScreen: React.FC = () => {
           console.log("🚨 Palavra perigosa detectada! Exibindo alerta...")
           Alert.alert(
             "⚠️ Atenção: Rede Wi-Fi Pública Detectada",
-            `Você está conectado à rede Wi-Fi "${ssid}". Este é um recurso do Keydozer para alertar sobre o uso de redes públicas. Evite realizar logins ou acessar informações sensíveis nesta rede.`
+            `Você está conectado à rede Wi-Fi "${ssid}". Este é um recurso do Keydozer para alertar sobre o uso de redes públicas. Evite realizar logins ou acessar informações sensíveis nesta rede.`,
+            [
+              { text: "Ok", style: "cancel" },
+              {
+                text: "Estou ciente (não mostrar mais)",
+                onPress: async () => {
+                  await AsyncStorage.setItem("skipPublicWifiAlert", "true")
+                  console.log("✅ Usuário escolheu não mostrar mais o alerta de Wi-Fi público.")
+                },
+              },
+            ]
           )
         } else {
           console.log("✅ Nenhuma palavra perigosa detectada na rede Wi-Fi atual.")

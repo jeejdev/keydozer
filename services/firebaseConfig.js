@@ -1,4 +1,4 @@
-import { initializeApp } from "firebase/app";
+import { initializeApp } from "firebase/app"
 import {
   initializeAuth,
   createUserWithEmailAndPassword,
@@ -10,10 +10,11 @@ import {
   deleteUser,
   EmailAuthProvider,
   getReactNativePersistence
-} from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
-import { getStorage } from "firebase/storage";
-import ReactNativeAsyncStorage from "@react-native-async-storage/async-storage";
+} from "firebase/auth"
+import { getFirestore } from "firebase/firestore"
+import { getStorage } from "firebase/storage"
+import { getFunctions, httpsCallable } from "firebase/functions"
+import ReactNativeAsyncStorage from "@react-native-async-storage/async-storage"
 
 // Configuração do Firebase
 const firebaseConfig = {
@@ -23,23 +24,26 @@ const firebaseConfig = {
   storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET,
   messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
   appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID,
-};
+}
 
 // Inicializar Firebase
-const app = initializeApp(firebaseConfig);
+const app = initializeApp(firebaseConfig)
 
 // Inicializar o Firebase Auth com persistência
 const auth = initializeAuth(app, {
   persistence: getReactNativePersistence(ReactNativeAsyncStorage),
-});
+})
 
-const db = getFirestore(app);
-const storage = getStorage(app);
+const db = getFirestore(app)
+const storage = getStorage(app)
+const functions = getFunctions(app) // <-- adicionado aqui!
 
 export {
   auth,
   db,
   storage,
+  functions,
+  httpsCallable,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signOut,
@@ -48,4 +52,4 @@ export {
   reauthenticateWithCredential,
   deleteUser,
   EmailAuthProvider
-};
+}

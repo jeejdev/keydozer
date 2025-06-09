@@ -37,18 +37,20 @@ const RegisterScreen: React.FC = () => {
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [termsModalVisible, setTermsModalVisible] = useState(false);
 
-  const { isValid, requirements } = checkPasswordStrength(password);
-
   const defaultQuestions = [
-  "Nome do seu primeiro pet?",
-  "Cidade onde nasceu?",
-  "Nome da escola primária?",
+    "Nome do seu primeiro pet?",
+    "Cidade onde nasceu?",
+    "Nome da escola primária?",
   ];
 
   const [securityAnswers, setSecurityAnswers] = useState<string[]>(["", "", ""]);
   const [extraQuestion, setExtraQuestion] = useState<string>("");
   const [extraAnswer, setExtraAnswer] = useState<string>("");
   const [showExtraQuestion, setShowExtraQuestion] = useState(false);
+
+  const [securityModalVisible, setSecurityModalVisible] = useState(false);
+
+  const { isValid, requirements } = checkPasswordStrength(password);
 
   const showModal = (message: string, type: "error" | "success" | "info") => {
     setModalMessage(message);
@@ -294,49 +296,86 @@ const RegisterScreen: React.FC = () => {
         onChangeText={setPasswordHint}
       />
 
-        <Text style={styles.title}>Perguntas de Segurança</Text>
-
-      {defaultQuestions.map((q, index) => (
-        <View key={index} style={{ marginBottom: 10, width: "90%" }}>
-          <Text style={{ marginBottom: 4 }}>{q}</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Sua resposta"
-            value={securityAnswers[index]}
-            onChangeText={(text) => {
-              const newAnswers = [...securityAnswers];
-              newAnswers[index] = text;
-              setSecurityAnswers(newAnswers);
-            }}
-          />
-        </View>
-      ))}
-
-      {showExtraQuestion && (
-        <>
-          <TextInput
-            style={styles.input}
-            placeholder="Pergunta extra"
-            value={extraQuestion}
-            onChangeText={setExtraQuestion}
-          />
-          <TextInput
-            style={styles.input}
-            placeholder="Resposta da pergunta extra"
-            value={extraAnswer}
-            onChangeText={setExtraAnswer}
-          />
-        </>
-      )}
-
       <TouchableOpacity
-        style={[styles.button, { backgroundColor: colors.green }]}
-        onPress={() => setShowExtraQuestion(true)}
+        style={styles.button}
+        onPress={() => setSecurityModalVisible(true)}
       >
-        <Text style={styles.buttonText}>+ Adicionar Pergunta Extra</Text>
+        <Text style={styles.buttonText}>Responder Perguntas de Segurança</Text>
       </TouchableOpacity>
 
-      {/* Aceite dos Termos */}
+      {/* Modal das perguntas */}
+      <Modal visible={securityModalVisible} animationType="slide" transparent={true}>
+        <View style={{
+          flex: 1,
+          justifyContent: "center",
+          alignItems: "center",
+          backgroundColor: "rgba(0,0,0,0.5)", // fundo escuro semi-transparente
+          padding: 20,
+        }}>
+          <View style={{
+            width: "90%",
+            maxHeight: "80%",
+            backgroundColor: "#fff",
+            borderRadius: 12,
+            padding: 20,
+          }}>
+            <ScrollView>
+              <Text style={{ fontSize: 20, fontWeight: "bold", marginBottom: 10, textAlign: "center" }}>
+                Perguntas de Segurança
+              </Text>
+              {defaultQuestions.map((q, index) => (
+                <View key={index} style={{ marginBottom: 10 }}>
+                  <Text style={{ marginBottom: 4 }}>{q}</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Sua resposta"
+                    value={securityAnswers[index]}
+                    onChangeText={(text) => {
+                      const newAnswers = [...securityAnswers];
+                      newAnswers[index] = text;
+                      setSecurityAnswers(newAnswers);
+                    }}
+                  />
+                </View>
+              ))}
+
+              {showExtraQuestion && (
+                <>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Pergunta extra"
+                    value={extraQuestion}
+                    onChangeText={setExtraQuestion}
+                  />
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Resposta da pergunta extra"
+                    value={extraAnswer}
+                    onChangeText={setExtraAnswer}
+                  />
+                </>
+              )}
+
+              <TouchableOpacity
+                style={[styles.button, { backgroundColor: colors.green }]}
+                onPress={() => setShowExtraQuestion(true)}
+              >
+                <Text style={styles.buttonText}>+ Adicionar Pergunta Extra</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.button, { marginTop: 20 }]}
+                onPress={() => setSecurityModalVisible(false)}
+              >
+                <Text style={styles.buttonText}>Fechar</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+
+            {/* Aceite dos Termos */}
       <View style={{ flexDirection: "row", alignItems: "center", width: "90%", marginBottom: 10 }}>
         <TouchableOpacity
           onPress={() => setTermsAccepted(!termsAccepted)}

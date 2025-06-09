@@ -48,7 +48,8 @@ export const initDB = async (): Promise<void> => {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       firebase_uid TEXT,
       has_2fa INTEGER DEFAULT 0,
-      twofa_secret TEXT DEFAULT NULL
+      twofa_secret TEXT DEFAULT NULL,
+      security_questions TEXT DEFAULT NULL
     );
 
     CREATE TABLE IF NOT EXISTS passwords (

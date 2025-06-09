@@ -46,9 +46,9 @@ O desenvolvimento do projeto foi dividido em **três sprints**, cobrindo os **18
 | Sincronização de senhas entre dispositivos via nuvem                                       | 11        | ✅     |
 | Compartilhamento seguro de senhas entre usuários                                           | 12        | ✅     |
 | Implementar alertas de segurança ao detectar redes Wi-Fi públicas                          | 15        | ✅     |
-| Adicionar suporte para autenticação de dois fatores (2FA)                                  | 17        | 🔜     |
-| Implementar a recuperação de senhas por perguntas de segurança ou e-mail                   | 9         | 🔜     |
-| Melhorias gerais na interface e experiência do usuário (UX/UI)                             | -         | 🔜     |
+| Adicionar suporte para autenticação de dois fatores (2FA)                                  | 17        | ✅     |
+| Implementar a recuperação de senhas por perguntas de segurança ou e-mail                   | 9         | ✅     |
+| Melhorias gerais na interface e experiência do usuário (UX/UI)                             | -         | ✅     |
 
 ---
 
@@ -105,4 +105,4 @@ npx expo start --ios
 
 ---
 
-> Última atualização: 07/06/2025
+> Última atualização: 08/06/2025

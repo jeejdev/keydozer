@@ -25,6 +25,7 @@ import ScanQRCodeScreen from "./(passwords)/ScanQRCodeScreen"
 import SecurityReportScreen from "./(passwords)/SecurityReportScreen"
 import SyncStatusScreen from "./(passwords)/SyncStatusScreen"
 import SharePasswordsScreen from "./(passwords)/SharePasswordsScreen"
+import Enable2FAScreen from "./(passwords)/Enable2FAScreen"
 
 const Drawer = createDrawerNavigator()
 
@@ -133,6 +134,14 @@ const DrawerNavigator = () => {
         }}
       />
       <Drawer.Screen
+        name="ativar-2fa"
+        component={Enable2FAScreen}
+        options={{
+          title: "Ativar 2FA",
+          drawerIcon: ({ color }) => <Ionicons name="shield-checkmark-outline" size={24} color={color} />,
+        }}
+      />
+      <Drawer.Screen
         name="exportar-senhas"
         component={ExportPasswordsScreen}
         options={{
@@ -144,7 +153,7 @@ const DrawerNavigator = () => {
         name="escanear-qr"
         component={ScanQRCodeScreen}
         options={{
-          title: "Escanear QR Code",
+          title: "Escanear Senha via QR Code",
           drawerIcon: ({ color }) => <Ionicons name="qr-code-outline" size={24} color={color} />,
         }}
       />
