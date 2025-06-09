@@ -23,6 +23,9 @@ import { clearDecryptedMasterKey } from "@/utils/secureStore"
 import ExportPasswordsScreen from "./(passwords)/ExportPasswordsScreen"
 import ScanQRCodeScreen from "./(passwords)/ScanQRCodeScreen"
 import SecurityReportScreen from "./(passwords)/SecurityReportScreen"
+import SyncStatusScreen from "./(passwords)/SyncStatusScreen"
+import SharePasswordsScreen from "./(passwords)/SharePasswordsScreen"
+import Enable2FAScreen from "./(passwords)/Enable2FAScreen"
 
 const Drawer = createDrawerNavigator()
 
@@ -107,11 +110,35 @@ const DrawerNavigator = () => {
         }}
       /> */}
       <Drawer.Screen
+        name="sincronizacao"
+        component={SyncStatusScreen}
+        options={{
+          title: "Sincronizar com a Nuvem",
+          drawerIcon: ({ color }) => <Ionicons name="sync-outline" size={24} color={color} />,
+        }}
+      />
+      <Drawer.Screen
         name="relatorios-seguranca"
         component={SecurityReportScreen}
         options={{
           title: "Relatórios de Segurança",
           drawerIcon: ({ color }) => <Ionicons name="bar-chart-outline" size={24} color={color} />,
+        }}
+      />
+      <Drawer.Screen
+        name="compartilhar-senhas"
+        component={SharePasswordsScreen}
+        options={{
+          title: "Compartilhar Senhas",
+          drawerIcon: ({ color }) => <Ionicons name="share-social-outline" size={24} color={color} />,
+        }}
+      />
+      <Drawer.Screen
+        name="ativar-2fa"
+        component={Enable2FAScreen}
+        options={{
+          title: "Ativar 2FA",
+          drawerIcon: ({ color }) => <Ionicons name="shield-checkmark-outline" size={24} color={color} />,
         }}
       />
       <Drawer.Screen
@@ -126,7 +153,7 @@ const DrawerNavigator = () => {
         name="escanear-qr"
         component={ScanQRCodeScreen}
         options={{
-          title: "Escanear QR Code",
+          title: "Escanear Senha via QR Code",
           drawerIcon: ({ color }) => <Ionicons name="qr-code-outline" size={24} color={color} />,
         }}
       />

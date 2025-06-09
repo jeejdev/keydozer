@@ -6,22 +6,16 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
+  Modal,
+  ScrollView,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { createUserWithEmailAndPassword } from "../../services/firebaseConfig";
-import { addUser, checkUserExistsByEmail } from "../../services/database";
-
-import {
-  hashPassword,
-  generateRandomMasterKey,
-  encryptWithPassword,
-} from "../../utils/encryption";
+import { createUserWithEmailAndPassword, db } from "../../services/firebaseConfig";
+import { setDoc, doc } from "firebase/firestore";
+import { addUser, checkUserExistsByEmail, deleteUserByEmail } from "../../services/database";
+import { hashPassword, generateRandomMasterKey, encryptWithPassword } from "../../utils/encryption";
 import { colors } from "../../utils/theme";
-import {
-  checkPasswordStrength,
-  generateStrongPassword,
-  copyToClipboard,
-} from "../../utils/passwordUtils";
+import { checkPasswordStrength, generateStrongPassword, copyToClipboard } from "../../utils/passwordUtils";
 import ErrorModal from "../../components/ErrorModal";
 import { auth } from "../../services/firebaseConfig";
 
@@ -39,6 +33,22 @@ const RegisterScreen: React.FC = () => {
 
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [termsModalVisible, setTermsModalVisible] = useState(false);
+
+  const defaultQuestions = [
+    "Nome do seu primeiro pet?",
+    "Cidade onde nasceu?",
+    "Nome da escola primária?",
+  ];
+
+  const [securityAnswers, setSecurityAnswers] = useState<string[]>(["", "", ""]);
+  const [extraQuestion, setExtraQuestion] = useState<string>("");
+  const [extraAnswer, setExtraAnswer] = useState<string>("");
+  const [showExtraQuestion, setShowExtraQuestion] = useState(false);
+
+  const [securityModalVisible, setSecurityModalVisible] = useState(false);
 
   const { isValid, requirements } = checkPasswordStrength(password);
 
@@ -64,6 +74,11 @@ const RegisterScreen: React.FC = () => {
   };
 
   const handleRegister = async () => {
+    if (!termsAccepted) {
+      showModal("Você deve aceitar os Termos de Uso para criar sua conta.", "error");
+      return;
+    }
+
     if (!name || !email || !password || !confirmPassword) {
       showModal("Todos os campos obrigatórios devem ser preenchidos!", "error");
       return;
@@ -79,25 +94,74 @@ const RegisterScreen: React.FC = () => {
       return;
     }
 
+    // Monta security_questions
+    const securityQuestions = [];
+
+    for (let i = 0; i < defaultQuestions.length; i++) {
+      const question = defaultQuestions[i];
+      const answer = securityAnswers[i]?.trim();
+      if (!answer) {
+        showModal(`Por favor, responda a pergunta: "${question}"`, "error");
+        return;
+      }
+      const answerHash = await hashPassword(answer);
+      securityQuestions.push({ question, answerHash });
+    }
+
+    if (showExtraQuestion && extraQuestion.trim() && extraAnswer.trim()) {
+      const extraAnswerHash = await hashPassword(extraAnswer.trim());
+      securityQuestions.push({
+        question: extraQuestion.trim(),
+        answerHash: extraAnswerHash,
+      });
+    }
+
+    const securityQuestionsJSON = JSON.stringify(securityQuestions);
+
+    let uid: string | null = null;
+    let firebaseUser = null;
+    let userCreatedLocally = false;
+
     try {
       const userExists = await checkUserExistsByEmail(email);
       if (userExists) throw new Error("EMAIL_ALREADY_EXISTS");
 
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      const firebaseUser = userCredential.user;
+      firebaseUser = userCredential.user;
+      uid = firebaseUser.uid;
 
       const masterKey = await generateRandomMasterKey();
       const encryptedMasterKey = encryptWithPassword(masterKey, password);
-
       const hashedPassword = await hashPassword(password);
 
-      await addUser(name, email, hashedPassword, encryptedMasterKey, passwordHint || null);
+      if (encryptedMasterKey === "[ENCRYPTION_FAILED]") throw new Error("FALHA_CRIPTO");
+
+      await setDoc(doc(db, "users", uid), {
+        name,
+        email,
+        encryptedMasterKey,
+        password: hashedPassword,
+        passwordHint: passwordHint || "",
+        createdAt: new Date().toISOString(),
+        firebaseUid: uid,
+        securityQuestions: securityQuestionsJSON
+      });
+
+      await addUser(
+        name,
+        email,
+        hashedPassword,
+        encryptedMasterKey,
+        passwordHint || null,
+        uid,
+        false,
+        null,
+        securityQuestionsJSON
+      );
+
+      userCreatedLocally = true;
 
       showModal("Conta criada com sucesso!", "success");
-
-      if (encryptedMasterKey === "[ENCRYPTION_FAILED]") {
-        throw new Error("FALHA_CRIPTO");
-      }
 
       setTimeout(() => {
         setModalVisible(false);
@@ -109,13 +173,32 @@ const RegisterScreen: React.FC = () => {
     } catch (error: any) {
       console.error("❌ Erro ao criar conta:", error);
 
-      const currentUser = auth.currentUser;
-      if (currentUser) {
+      // ROLLBACK Firebase Auth
+      if (firebaseUser) {
         try {
-          await currentUser.delete();
-          console.log("🧹 Usuário removido do Firebase após falha local.");
+          await firebaseUser.delete();
+          console.log("🧹 Firebase Auth revertido.");
         } catch (deleteErr) {
-          console.error("⚠️ Erro ao remover usuário do Firebase:", deleteErr);
+          console.error("⚠️ Erro ao deletar usuário do Firebase:", deleteErr);
+        }
+      }
+
+      // ROLLBACK Firestore
+      if (uid) {
+        try {
+          await setDoc(doc(db, "users", uid), {}); // limpa
+          console.log("🧹 Documento Firestore limpo.");
+        } catch (err) {
+          console.error("⚠️ Erro ao limpar Firestore:", err);
+        }
+      }
+
+      // ROLLBACK SQLite
+      if (userCreatedLocally) {
+        try {
+          await deleteUserByEmail(email);
+        } catch (err) {
+          console.error("⚠️ Erro ao remover usuário local:", err);
         }
       }
 
@@ -124,6 +207,8 @@ const RegisterScreen: React.FC = () => {
         errorMessage = "Este e-mail já está em uso.";
       } else if (error.message === "EMAIL_ALREADY_EXISTS") {
         errorMessage = "Este e-mail já está cadastrado localmente.";
+      } else if (error.message === "FALHA_CRIPTO") {
+        errorMessage = "Erro na criptografia da chave mestra.";
       }
 
       showModal(errorMessage, "error");
@@ -211,6 +296,109 @@ const RegisterScreen: React.FC = () => {
         onChangeText={setPasswordHint}
       />
 
+      <TouchableOpacity
+        style={styles.button}
+        onPress={() => setSecurityModalVisible(true)}
+      >
+        <Text style={styles.buttonText}>Responder Perguntas de Segurança</Text>
+      </TouchableOpacity>
+
+      {/* Modal das perguntas */}
+      <Modal visible={securityModalVisible} animationType="slide" transparent={true}>
+        <View style={{
+          flex: 1,
+          justifyContent: "center",
+          alignItems: "center",
+          backgroundColor: "rgba(0,0,0,0.5)", // fundo escuro semi-transparente
+          padding: 20,
+        }}>
+          <View style={{
+            width: "90%",
+            maxHeight: "80%",
+            backgroundColor: "#fff",
+            borderRadius: 12,
+            padding: 20,
+          }}>
+            <ScrollView>
+              <Text style={{ fontSize: 20, fontWeight: "bold", marginBottom: 10, textAlign: "center" }}>
+                Perguntas de Segurança
+              </Text>
+              {defaultQuestions.map((q, index) => (
+                <View key={index} style={{ marginBottom: 10 }}>
+                  <Text style={{ marginBottom: 4 }}>{q}</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Sua resposta"
+                    value={securityAnswers[index]}
+                    onChangeText={(text) => {
+                      const newAnswers = [...securityAnswers];
+                      newAnswers[index] = text;
+                      setSecurityAnswers(newAnswers);
+                    }}
+                  />
+                </View>
+              ))}
+
+              {showExtraQuestion && (
+                <>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Pergunta extra"
+                    value={extraQuestion}
+                    onChangeText={setExtraQuestion}
+                  />
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Resposta da pergunta extra"
+                    value={extraAnswer}
+                    onChangeText={setExtraAnswer}
+                  />
+                </>
+              )}
+
+              <TouchableOpacity
+                style={[styles.button, { backgroundColor: colors.green }]}
+                onPress={() => setShowExtraQuestion(true)}
+              >
+                <Text style={styles.buttonText}>+ Adicionar Pergunta Extra</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.button, { marginTop: 20 }]}
+                onPress={() => setSecurityModalVisible(false)}
+              >
+                <Text style={styles.buttonText}>Fechar</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+
+            {/* Aceite dos Termos */}
+      <View style={{ flexDirection: "row", alignItems: "center", width: "90%", marginBottom: 10 }}>
+        <TouchableOpacity
+          onPress={() => setTermsAccepted(!termsAccepted)}
+          style={{
+            width: 24,
+            height: 24,
+            borderWidth: 1,
+            borderColor: colors.mediumGray,
+            marginRight: 10,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: termsAccepted ? colors.green : "#fff",
+          }}
+        >
+          {termsAccepted && <Text style={{ color: "#fff" }}>✓</Text>}
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => setTermsModalVisible(true)}>
+          <Text style={{ color: colors.mediumGray, textDecorationLine: "underline" }}>
+            Li e aceito os Termos de Uso
+          </Text>
+        </TouchableOpacity>
+      </View>
+
       <TouchableOpacity style={styles.button} onPress={handleRegister}>
         <Text style={styles.buttonText}>Criar Conta</Text>
       </TouchableOpacity>
@@ -225,6 +413,33 @@ const RegisterScreen: React.FC = () => {
         type={modalType}
         onClose={() => setModalVisible(false)}
       />
+
+      {/* Modal com os Termos de Uso */}
+      <Modal visible={termsModalVisible} animationType="slide">
+        <View style={{ flex: 1, padding: 20, backgroundColor: "#fff" }}>
+          <ScrollView>
+            <Text style={{ fontSize: 18, fontWeight: "bold", marginBottom: 10 }}>
+              Termos de Uso
+            </Text>
+            <Text style={{ fontSize: 14, color: colors.darkGray }}>
+              - O usuário é o único responsável por manter sua senha mestre em segurança. {"\n\n"}
+              - Em caso de perda ou esquecimento da senha mestre, não será possível recuperar as senhas armazenadas devido à utilização de criptografia forte. {"\n\n"}
+              - O aplicativo permite apenas a recuperação da conta via redefinição de senha, com perda de todas as senhas previamente salvas. {"\n\n"}
+              - O desenvolvedor do aplicativo não se responsabiliza por perdas de dados causadas por negligência do usuário em guardar sua senha mestre. {"\n\n"}
+              - As perguntas de segurança utilizadas para recuperação de conta devem ser preenchidas com responsabilidade. {"\n\n"}
+              - A pergunta secreta personalizada **pode ser pública**, portanto **não insira dados sensíveis ou informações que comprometam sua segurança**. {"\n\n"}
+              - É recomendado escrever as respostas com **letras minúsculas** e **uma palavra apenas**, para facilitar a memorização e a recuperação da conta. {"\n\n"}
+              - Ao prosseguir, você concorda com estes termos.
+            </Text>
+            <TouchableOpacity
+              style={[styles.button, { marginTop: 20 }]}
+              onPress={() => setTermsModalVisible(false)}
+            >
+              <Text style={styles.buttonText}>Fechar</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+      </Modal>
     </View>
   );
 };

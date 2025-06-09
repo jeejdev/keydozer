@@ -14,6 +14,10 @@ interface UserRow {
   encrypted_master_key: string
   password_hint: string | null
   created_at: string
+  firebase_uid: string | null
+  has_2fa: number
+  twofa_secret: string | null
+  security_questions: string | null
 }
 
 interface PasswordRow {
@@ -40,8 +44,12 @@ export const initDB = async (): Promise<void> => {
       email TEXT NOT NULL UNIQUE, 
       password TEXT NOT NULL, 
       encrypted_master_key TEXT NOT NULL,
-      password_hint TEXT, 
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      password_hint TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      firebase_uid TEXT,
+      has_2fa INTEGER DEFAULT 0,
+      twofa_secret TEXT DEFAULT NULL,
+      security_questions TEXT DEFAULT NULL
     );
 
     CREATE TABLE IF NOT EXISTS passwords (
@@ -66,7 +74,11 @@ export const addUser = async (
   email: string,
   password: string,
   encryptedMasterKey: string,
-  passwordHint: string | null = null
+  passwordHint: string | null = null,
+  firebaseUid: string | null = null,
+  has2FA: boolean = false,
+  twofaSecret: string | null = null,
+  securityQuestions: string | null = null
 ): Promise<number> => {
   console.log("📥 Chamando addUser com:", name, email)
 
@@ -80,12 +92,18 @@ export const addUser = async (
 
   try {
     const result = await db.runAsync(
-      "INSERT INTO users (name, email, password, encrypted_master_key, password_hint) VALUES (?, ?, ?, ?, ?)",
+      `INSERT INTO users 
+      (name, email, password, encrypted_master_key, password_hint, firebase_uid, has_2fa, twofa_secret, security_questions) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       name,
       email,
       password,
       encryptedMasterKey,
-      passwordHint
+      passwordHint,
+      firebaseUid,
+      has2FA ? 1 : 0,
+      twofaSecret,
+      securityQuestions
     )
 
     console.log("✅ Usuário local salvo com ID:", result.lastInsertRowId)
@@ -94,6 +112,33 @@ export const addUser = async (
     console.error("❌ Erro ao salvar no banco local:", error)
     throw error
   }
+}
+
+
+export const updateUser2FA = async (
+  userId: number,
+  has2FA: boolean,
+  twofaSecret: string | null
+): Promise<void> => {
+  if (!db) await initDB()
+  await db.runAsync(
+    `UPDATE users SET has_2fa = ?, twofa_secret = ? WHERE id = ?`,
+    has2FA ? 1 : 0,
+    twofaSecret,
+    userId
+  )
+}
+
+export const updateUserSecurityQuestions = async (
+  userId: number,
+  securityQuestions: string | null
+): Promise<void> => {
+  if (!db) await initDB()
+  await db.runAsync(
+    `UPDATE users SET security_questions = ? WHERE id = ?`,
+    securityQuestions,
+    userId
+  )
 }
 
 export const checkUserExistsByEmail = async (email: string): Promise<boolean> => {
@@ -150,6 +195,23 @@ export const deleteUser = async (id: number): Promise<void> => {
   await db.runAsync("DELETE FROM users WHERE id = ?", id)
 }
 
+export const deleteUserByEmail = async (email: string): Promise<void> => {
+  if (!db) await initDB()
+
+  try {
+    const user = await db.getFirstAsync("SELECT id FROM users WHERE email = ?", email)
+    if (user) {
+      await db.runAsync("DELETE FROM users WHERE email = ?", email)
+      console.log("🧹 Usuário e senhas associados removidos do SQLite.")
+    } else {
+      console.warn("⚠️ Nenhum usuário encontrado com esse e-mail para exclusão.")
+    }
+  } catch (error) {
+    console.error("❌ Erro ao deletar usuário local por e-mail:", error)
+    throw error
+  }
+}
+
 export const deleteDatabase = async (): Promise<void> => {
   try {
     await FileSystem.deleteAsync(FileSystem.documentDirectory + "SQLite/keydozer.db", {
@@ -189,7 +251,7 @@ export const addPassword = async (
 
 export const getPasswordsByUserId = async (userId: number): Promise<PasswordEntry[]> => {
   if (!db) await initDB()
-  const rows = await db.getAllAsync("SELECT * FROM passwords WHERE user_id = ?", userId) as PasswordRow[]
+  const rows = (await db.getAllAsync("SELECT * FROM passwords WHERE user_id = ?", userId)) as PasswordRow[]
   return rows.map(
     (row) =>
       new PasswordEntry(

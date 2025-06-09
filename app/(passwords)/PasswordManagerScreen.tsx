@@ -21,18 +21,19 @@ import {
   getPasswordsByUserId,
   updatePasswordById,
 } from "../../services/database"
-import { decryptData, encryptData } from "../../utils/encryption"
+import { decryptData, decryptWithPassword, encryptData, hashPassword } from "../../utils/encryption"
 import { copyToClipboard, checkPasswordStrength } from "../../utils/passwordUtils"
 import { colors } from "../../utils/theme"
 import ErrorModal from "../../components/ErrorModal"
-import { auth, EmailAuthProvider, reauthenticateWithCredential } from "@/services/firebaseConfig"
+import { auth, db, EmailAuthProvider, reauthenticateWithCredential } from "@/services/firebaseConfig"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { Ionicons } from '@expo/vector-icons'
 import QRCode from 'react-native-qrcode-svg'
+import { deleteDoc, doc, setDoc } from "firebase/firestore";
 
 const PasswordManagerScreen = () => {
   const navigation = useNavigation()
-  const { localUser } = useAuth()
+  const { localUser, setLocalUser } = useAuth();
   const [groupedPasswords, setGroupedPasswords] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [modalVisible, setModalVisible] = useState(false)
@@ -48,8 +49,10 @@ const PasswordManagerScreen = () => {
   const [errorVisible, setErrorVisible] = useState(false)
   const [canViewPasswords, setCanViewPasswords] = useState(false)
   const [passwordPromptVisible, setPasswordPromptVisible] = useState(false)
+  const [savePasswordsToCloud, setSavePasswordsToCloud] = useState(false)
   const [passwordInput, setPasswordInput] = useState("")
   const [showPassword, setShowPassword] = useState(false)
+  const [showPasswordInput, setShowPasswordInput] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null)
   const [qrData, setQrData] = useState<string | null>(null)
   const [qrModalVisible, setQrModalVisible] = useState(false)
@@ -70,80 +73,156 @@ const PasswordManagerScreen = () => {
     setCategory("")
   }
 
-  const reauthenticateUser = async (inputPassword: string): Promise<boolean> => {
-    const user = auth.currentUser
-    if (!user) return false
+const reauthenticateUser = async (inputPassword: string): Promise<boolean> => {
+  const user = auth.currentUser;
+  console.log("🔒 [reauthenticateUser] currentUser:", user);
 
-    try {
-      const credential = EmailAuthProvider.credential(user.email!, inputPassword)
-      await reauthenticateWithCredential(user, credential)
-      return true
-    } catch (error) {
-      showModal("Senha incorreta. Tente novamente.", "error")
-      setPasswordPromptVisible(true)
-      return false
-    }
+  if (!user) {
+    console.warn("⚠️ [reauthenticateUser] auth.currentUser está null!");
+    return false;
   }
 
-  const loadPasswords = async () => {
-    if (!localUser) return
-    setLoading(true)
+  try {
+    console.log("📧 [reauthenticateUser] user.email:", user.email);
+    const credential = EmailAuthProvider.credential(user.email!, inputPassword);
+    console.log("✅ [reauthenticateUser] Credential criada:", credential);
 
-    try {
-      const passwords = await getPasswordsByUserId(localUser.id)
-      const grouped: Record<string, any[]> = {}
-
-      for (const entry of passwords) {
-        const decryptedPassword = decryptData(entry.encryptedPassword, localUser.decryptedMasterKey || "")
-        const category = entry.category?.trim() || "Outros"
-        if (!grouped[category]) grouped[category] = []
-
-        const decryptedadditionalInfo = decryptData(entry.additionalInfo || "", localUser.decryptedMasterKey || "")
-        grouped[category].push({
-          ...entry,
-          decryptedPassword,
-          decryptedadditionalInfo,
-        })
-      }
-
-      const sections = Object.entries(grouped).map(([title, data]) => ({ title, data }))
-      setGroupedPasswords(sections)
-    } catch (error) {
-      console.error("Erro ao carregar senhas:", error)
-      showModal("Erro ao carregar senhas.", "error")
-    }
-
-    setLoading(false)
+    await reauthenticateWithCredential(user, credential);
+    console.log("✅ [reauthenticateUser] Reautenticação bem-sucedida!");
+    return true;
+  } catch (error) {
+    console.error("❌ [reauthenticateUser] Erro ao reautenticar:", error);
+    showModal("Senha incorreta. Tente novamente.", "error");
+    setPasswordPromptVisible(true);
+    return false;
   }
+};
 
-  useFocusEffect(
-    React.useCallback(() => {
-      const checkProtectionAndLoad = async () => {
-        setCanViewPasswords(false)
-        const setting = await AsyncStorage.getItem("requirePasswordToView")
-        const require = setting === "true"
+const loadPasswords = async () => {
+  if (!localUser) return;
+  setLoading(true);
 
-        if (require) {
-          setPasswordPromptVisible(true)
+  try {
+    const passwords = await getPasswordsByUserId(localUser.id);
+    const grouped: Record<string, any[]> = {};
+
+    for (const entry of passwords) {
+      const decryptedPassword = decryptData(entry.encryptedPassword, localUser.decryptedMasterKey || "");
+      const category = entry.category?.trim() || "Outros";
+      if (!grouped[category]) grouped[category] = [];
+
+      // PATCH: tratamento seguro do additionalInfo
+      let decryptedadditionalInfo = "";
+      try {
+        if (entry.additionalInfo?.startsWith("U2FsdGVk")) {
+          console.log(`🔑 Tentando descriptografar additionalInfo da senha ID ${entry.id}...`);
+          decryptedadditionalInfo = decryptData(entry.additionalInfo, localUser.decryptedMasterKey || "");
+          console.log(`🔓 AdditionalInfo descriptografado:`, decryptedadditionalInfo);
         } else {
-          setCanViewPasswords(true)
-          loadPasswords()
+          if (entry.additionalInfo) {
+            console.warn(`⚠️ Campo additionalInfo da senha ID ${entry.id} não estava criptografado. Usando texto puro.`);
+          }
+          decryptedadditionalInfo = entry.additionalInfo || "";
         }
+      } catch (e) {
+        console.error(`❌ Erro ao descriptografar additionalInfo da senha ID ${entry.id}:`, e);
+        decryptedadditionalInfo = "[Erro de descriptografia]";
       }
 
-      checkProtectionAndLoad()
-    }, [])
-  )
-
-  const confirmPasswordView = async () => {
-    const success = await reauthenticateUser(passwordInput)
-    if (success) {
-      setPasswordPromptVisible(false)
-      setCanViewPasswords(true)
-      loadPasswords()
+      grouped[category].push({
+        ...entry,
+        decryptedPassword,
+        decryptedadditionalInfo,
+      });
     }
-    setPasswordInput("")
+
+    const sections = Object.entries(grouped).map(([title, data]) => ({ title, data }));
+    setGroupedPasswords(sections);
+  } catch (error) {
+    console.error("Erro ao carregar senhas:", error);
+    showModal("Erro ao carregar senhas.", "error");
   }
+
+  setLoading(false);
+};
+
+
+useFocusEffect(
+  React.useCallback(() => {
+    const checkSettingsAndLoad = async () => {
+      setCanViewPasswords(false)
+
+      const requireSetting = await AsyncStorage.getItem("requirePasswordToView")
+      const require = requireSetting === "true"
+      console.log("💾 [useFocusEffect] requirePasswordToView:", requireSetting)
+
+      if (require) {
+        setPasswordPromptVisible(true)
+      } else {
+        setCanViewPasswords(true)
+        loadPasswords()
+      }
+
+      const saveSetting = await AsyncStorage.getItem("savePasswordsToCloud")
+      console.log("💾 [useFocusEffect] savePasswordsToCloud setting:", saveSetting)
+
+      if (saveSetting !== null) {
+        setSavePasswordsToCloud(saveSetting === "true")
+      } else {
+        console.log("💾 [useFocusEffect] savePasswordsToCloud não configurado, ativando por padrão.")
+        await AsyncStorage.setItem("savePasswordsToCloud", "true")
+        setSavePasswordsToCloud(true)
+      }
+    }
+
+    checkSettingsAndLoad()
+  }, [])
+)
+
+const validatePasswordByHash = async (inputPassword: string, storedHashedPassword: string): Promise<boolean> => {
+  const inputHash = await hashPassword(inputPassword)
+  console.log("🔒 [validatePasswordByHash] inputHash:", inputHash)
+  console.log("🔒 [validatePasswordByHash] storedHash:", storedHashedPassword)
+  return inputHash === storedHashedPassword
+}
+
+const confirmPasswordView = async () => {
+  console.log("🔒 [confirmPasswordView] Iniciado")
+
+  if (!localUser) {
+    console.warn("⚠️ [confirmPasswordView] localUser está null!")
+    return
+  }
+
+  const isValid = await validatePasswordByHash(passwordInput, localUser.password)
+
+  if (!isValid) {
+    console.error("❌ [confirmPasswordView] Senha incorreta.")
+    showModal("Senha incorreta. Tente novamente.", "error")
+    return
+  }
+
+  console.log("✅ [confirmPasswordView] Senha validada com sucesso.")
+
+  const decryptedMasterKey = decryptWithPassword(localUser.encryptedMasterKey, passwordInput)
+  console.log("🔑 decryptedMasterKey:", decryptedMasterKey)
+
+  if (decryptedMasterKey.startsWith("[DESCRIPTOGRAFIA_FALHOU]")) {
+    showModal("Falha ao descriptografar a chave mestra.", "error")
+    return
+  }
+
+  setLocalUser({ ...localUser, decryptedMasterKey })
+
+  setPasswordPromptVisible(false)
+  setCanViewPasswords(true)
+
+  console.log("📥 [confirmPasswordView] Chamando loadPasswords...")
+  loadPasswords()
+
+  setPasswordInput("")
+}
+
 
   const handleCancelPasswordPrompt = () => {
     setPasswordPromptVisible(false)
@@ -155,36 +234,96 @@ const PasswordManagerScreen = () => {
       showModal("Preencha todos os campos obrigatórios.", "error")
       return
     }
+
+    console.log("📝 Iniciando handleSave...")
+    console.log("👤 [handleSave] localUser completo:", JSON.stringify(localUser, null, 2))
+
     try {
       const encryptedPassword = encryptData(password, localUser.decryptedMasterKey || "")
-      const encryptedadditionalInfo = encryptData(additionalInfo || "", localUser.decryptedMasterKey || "")
+      const encryptedAdditionalInfo = encryptData(additionalInfo || "", localUser.decryptedMasterKey || "")
+      const encryptedServiceName = encryptData(serviceName, localUser.decryptedMasterKey || "")
+      const encryptedUsername = encryptData(username, localUser.decryptedMasterKey || "")
+      const encryptedCategory = encryptData(category || "Outros", localUser.decryptedMasterKey || "")
+
+      let newPasswordId: number | null = null
+      let createdAt = new Date().toISOString() // Padrão se for novo
 
       if (isEditing && selectedId !== null) {
+        console.log("✏️ Editando senha local ID:", selectedId)      
+
+        // Busca o registro existente para manter o createdAt
+        const existing = groupedPasswords
+          .flatMap(section => section.data)
+          .find(item => item.id === selectedId)
+
+        if (existing && existing.createdAt) {
+          createdAt = existing.createdAt
+        }
+
         await updatePasswordById(
           selectedId,
           encryptedPassword,
           serviceName,
           username,
           category,
-          encryptedadditionalInfo
+          encryptedAdditionalInfo
         )
+        newPasswordId = selectedId
       } else {
-        await addPassword(
+        console.log("➕ Adicionando nova senha local...")
+        newPasswordId = await addPassword(
           localUser.id,
           encryptedPassword,
           serviceName,
           username,
           category,
-          encryptedadditionalInfo
+          encryptedAdditionalInfo
         )
+        console.log("✅ Senha local salva. ID:", newPasswordId)
+      }
+
+      console.log("☁️ savePasswordsToCloud:", savePasswordsToCloud)
+
+      const firebaseUid = localUser.firebaseUid || auth.currentUser?.uid
+
+      console.log("👤 localUser.firebaseUid:", localUser.firebaseUid)
+      console.log("👤 auth.currentUser.uid:", auth.currentUser?.uid)
+
+      if (savePasswordsToCloud && firebaseUid) {
+        console.log("☁️ Salvando senha na nuvem para UID:", firebaseUid)
+
+        const passwordRef = doc(db, "users", firebaseUid, "passwords", `${newPasswordId}`)
+
+        const firestoreData: any = {
+          serviceName: encryptedServiceName,
+          password: encryptedPassword,
+          username: encryptedUsername,
+          category: encryptedCategory,
+          additionalInfo: encryptedAdditionalInfo,
+          createdAt
+        }
+
+        if (isEditing) {
+          firestoreData.updatedAt = new Date().toISOString()
+        }
+
+        try {
+          await setDoc(passwordRef, firestoreData)
+          console.log("✅ Senha salva/atualizada na nuvem com sucesso.")
+        } catch (e) {
+          console.error("❌ Erro ao salvar na nuvem:", e)
+        }
+      } else {
+        console.warn("⚠️ Salvamento na nuvem não realizado (configuração ou autenticação inválida).")
       }
 
       showModal("Senha salva com sucesso!", "success")
       setModalVisible(false)
       resetForm()
       loadPasswords()
+
     } catch (e) {
-      console.error("Erro ao salvar:", e)
+      console.error("❌ Erro ao salvar:", e)
       showModal("Erro ao salvar senha.", "error")
     }
   }
@@ -196,11 +335,22 @@ const PasswordManagerScreen = () => {
         text: "Excluir",
         style: "destructive",
         onPress: async () => {
-          await deletePasswordById(id)
-          setModalVisible(false)
-          resetForm()
-          loadPasswords()
-          showModal("Senha excluída com sucesso!", "success")
+          try {
+            await deletePasswordById(id)
+
+            if (localUser && localUser.firebaseUid) {
+              const passwordRef = doc(db, "users", localUser.firebaseUid, "passwords", `${id}`)
+              await deleteDoc(passwordRef)
+            }
+
+            setModalVisible(false)
+            resetForm()
+            loadPasswords()
+            showModal("Senha excluída com sucesso!", "success")
+          } catch (error) {
+            console.error("Erro ao excluir senha:", error)
+            showModal("Erro ao excluir senha.", "error")
+          }
         },
       },
     ])
@@ -358,130 +508,136 @@ const PasswordManagerScreen = () => {
         <Text style={styles.buttonText}>+ Adicionar Senha</Text>
       </TouchableOpacity>
 
-      <Modal visible={modalVisible} animationType="slide">
-  <ScrollView contentContainerStyle={styles.modalContainer}>
-    <Text style={styles.title}>{isEditing ? "Editar Senha" : "Nova Senha"}</Text>
+  <Modal visible={modalVisible} animationType="slide">
+    <ScrollView contentContainerStyle={styles.modalContainer}>
+      <Text style={styles.title}>{isEditing ? "Editar Senha" : "Nova Senha"}</Text>
 
-    <View style={{ marginBottom: 10 }}>
-      <Text style={{ marginBottom: 4 }}>🔒 Nome do serviço</Text>
-      <TextInput style={styles.input} value={serviceName} onChangeText={setServiceName} />
-    </View>
+      <View style={{ marginBottom: 10 }}>
+        <Text style={{ marginBottom: 4 }}>🔒 Nome do serviço</Text>
+        <TextInput style={styles.input} value={serviceName} onChangeText={setServiceName} />
+      </View>
 
-    <View style={{ marginBottom: 10 }}>
-      <Text style={{ marginBottom: 4 }}>🔑 Senha</Text>
-      <View style={{ flexDirection: "row", alignItems: "center" }}>
+      <View style={{ marginBottom: 10 }}>
+        <Text style={{ marginBottom: 4 }}>🔑 Senha</Text>
+        <View style={{ flexDirection: "row", alignItems: "center" }}>
+          <TextInput
+            style={[styles.input, { flex: 1 }]}
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry={!showPassword}
+          />
+          <TouchableOpacity onPress={() => setShowPassword(prev => !prev)} style={{ marginLeft: 10 }}>
+            <Ionicons name={showPassword ? "eye-off" : "eye"} size={24} color={colors.darkGray} />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <View style={{ marginBottom: 10 }}>
+        <Text style={{ marginBottom: 4 }}>👤 Nome de usuário</Text>
+        <TextInput style={styles.input} value={username} onChangeText={setUsername} />
+      </View>
+
+      <View style={{ marginBottom: 10 }}>
+        <Text style={{ marginBottom: 4 }}>🗂 Categoria</Text>
+        <TextInput style={styles.input} value={category} onChangeText={setCategory} />
+      </View>
+
+      <View style={{ marginBottom: 10 }}>
+        <Text style={{ marginBottom: 4 }}>📝 Informações adicionais</Text>
         <TextInput
-          style={[styles.input, { flex: 1 }]}
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry={!showPassword}
+          style={[styles.input, { height: 80 }]}
+          multiline
+          value={additionalInfo}
+          onChangeText={setAdditionalInfo}
         />
-        <TouchableOpacity onPress={() => setShowPassword(prev => !prev)} style={{ marginLeft: 10 }}>
-          <Ionicons name={showPassword ? "eye-off" : "eye"} size={24} color={colors.darkGray} />
+      </View>
+
+      <TouchableOpacity style={styles.button} onPress={handleSave}>
+        <Text style={styles.buttonText}>Salvar</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={[styles.button, { backgroundColor: colors.mediumGray }]}
+        onPress={() => setModalVisible(false)}
+      >
+        <Text style={styles.buttonText}>Cancelar</Text>
+      </TouchableOpacity>
+
+      {isEditing && selectedId !== null && (
+        <TouchableOpacity
+          style={[styles.button, { backgroundColor: "#D32F2F" }]}
+          onPress={() => handleDelete(selectedId)}
+        >
+          <Text style={[styles.buttonText, { color: "#fff" }]}>Excluir</Text>
+        </TouchableOpacity>
+      )}
+    </ScrollView>
+  </Modal>
+
+  <Modal visible={passwordPromptVisible} animationType="fade" transparent>
+    <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "rgba(0,0,0,0.5)" }}>
+      <View style={{ backgroundColor: "white", padding: 20, borderRadius: 10, width: "85%" }}>
+        <Text style={{ fontSize: 16, fontWeight: "bold", marginBottom: 10 }}>
+          🔒 Proteção ativada
+        </Text>
+        <Text style={{ marginBottom: 10 }}>
+          Digite sua senha para visualizar as senhas salvas:
+        </Text>
+        <View style={{ flexDirection: "row", alignItems: "center" }}>
+          <TextInput
+            style={[styles.input, { flex: 1 }]}
+            placeholder="Senha da conta"
+            value={passwordInput}
+            onChangeText={setPasswordInput}
+            secureTextEntry={!showPasswordInput}
+          />
+          <TouchableOpacity onPress={() => setShowPasswordInput(prev => !prev)} style={{ marginLeft: 10 }}>
+            <Ionicons name={showPasswordInput ? "eye-off" : "eye"} size={24} color={colors.darkGray} />
+          </TouchableOpacity>
+        </View>
+        <TouchableOpacity style={[styles.button, { marginTop: 10 }]} onPress={confirmPasswordView}>
+          <Text style={styles.buttonText}>Confirmar</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.button, { backgroundColor: "#D32F2F", marginTop: 10 }]}
+          onPress={handleCancelPasswordPrompt}
+        >
+          <Text style={{ color: "#fff", fontWeight: "bold" }}>Cancelar</Text>
         </TouchableOpacity>
       </View>
     </View>
+  </Modal>
 
-    <View style={{ marginBottom: 10 }}>
-      <Text style={{ marginBottom: 4 }}>👤 Nome de usuário</Text>
-      <TextInput style={styles.input} value={username} onChangeText={setUsername} />
+
+  <Modal visible={!!weakPasswordInfo} transparent animationType="slide">
+    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: "rgba(0,0,0,0.5)" }}>
+      <View style={{ backgroundColor: "#fff", padding: 20, borderRadius: 10, width: "85%" }}>
+        <Text style={{ fontSize: 18, fontWeight: "bold", marginBottom: 10 }}>
+          ⚠ Senha fraca detectada
+        </Text>
+        <Text style={{ marginBottom: 10 }}>
+          A senha de <Text style={{ fontWeight: "bold" }}>{weakPasswordInfo?.service}</Text> apresenta os seguintes problemas:
+        </Text>
+        {weakPasswordInfo?.reasons.map((reason, idx) => (
+          <Text key={idx}>• {reason}</Text>
+        ))}
+        <TouchableOpacity style={[styles.button, { marginTop: 20 }]} onPress={() => setWeakPasswordInfo(null)}>
+          <Text style={styles.buttonText}>Entendi</Text>
+        </TouchableOpacity>
+      </View>
     </View>
+  </Modal>
 
-    <View style={{ marginBottom: 10 }}>
-      <Text style={{ marginBottom: 4 }}>🗂 Categoria</Text>
-      <TextInput style={styles.input} value={category} onChangeText={setCategory} />
-    </View>
-
-    <View style={{ marginBottom: 10 }}>
-      <Text style={{ marginBottom: 4 }}>📝 Informações adicionais</Text>
-      <TextInput
-        style={[styles.input, { height: 80 }]}
-        multiline
-        value={additionalInfo}
-        onChangeText={setAdditionalInfo}
-      />
-    </View>
-
-    <TouchableOpacity style={styles.button} onPress={handleSave}>
-      <Text style={styles.buttonText}>Salvar</Text>
-    </TouchableOpacity>
-
-    <TouchableOpacity
-      style={[styles.button, { backgroundColor: colors.mediumGray }]}
-      onPress={() => setModalVisible(false)}
-    >
-      <Text style={styles.buttonText}>Cancelar</Text>
-    </TouchableOpacity>
-
-    {isEditing && selectedId !== null && (
-      <TouchableOpacity
-        style={[styles.button, { backgroundColor: "#D32F2F" }]}
-        onPress={() => handleDelete(selectedId)}
-      >
-        <Text style={[styles.buttonText, { color: "#fff" }]}>Excluir</Text>
-      </TouchableOpacity>
-    )}
-  </ScrollView>
-</Modal>
-
-
-      <Modal visible={passwordPromptVisible} animationType="fade" transparent>
-        <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "rgba(0,0,0,0.5)" }}>
-          <View style={{ backgroundColor: "white", padding: 20, borderRadius: 10, width: "85%" }}>
-            <Text style={{ fontSize: 16, fontWeight: "bold", marginBottom: 10 }}>
-              🔒 Proteção ativada
-            </Text>
-            <Text style={{ marginBottom: 10 }}>
-              Digite sua senha para visualizar as senhas salvas:
-            </Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Senha da conta"
-              value={passwordInput}
-              onChangeText={setPasswordInput}
-              secureTextEntry
-            />
-            <TouchableOpacity style={[styles.button, { marginTop: 10 }]} onPress={confirmPasswordView}>
-              <Text style={styles.buttonText}>Confirmar</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.button, { backgroundColor: "#D32F2F", marginTop: 10 }]} onPress={handleCancelPasswordPrompt}
-            >
-              <Text style={{ color: "#fff", fontWeight: "bold" }}>Cancelar</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal visible={!!weakPasswordInfo} transparent animationType="slide">
-          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: "rgba(0,0,0,0.5)" }}>
-            <View style={{ backgroundColor: "#fff", padding: 20, borderRadius: 10, width: "85%" }}>
-              <Text style={{ fontSize: 18, fontWeight: "bold", marginBottom: 10 }}>
-                ⚠ Senha fraca detectada
-              </Text>
-              <Text style={{ marginBottom: 10 }}>
-                A senha de <Text style={{ fontWeight: "bold" }}>{weakPasswordInfo?.service}</Text> apresenta os seguintes problemas:
-              </Text>
-              {weakPasswordInfo?.reasons.map((reason, idx) => (
-                <Text key={idx}>• {reason}</Text>
-              ))}
-              <TouchableOpacity style={[styles.button, { marginTop: 20 }]} onPress={() => setWeakPasswordInfo(null)}>
-                <Text style={styles.buttonText}>Entendi</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-      </Modal>
-
-      <ErrorModal
-        visible={errorVisible}
-        message={modalMessage}
-        type={modalType as any}
-        onClose={() => {
-          setErrorVisible(false)
-          if (modalType === "error") setPasswordPromptVisible(true)
-        }}
-      />
-    </View>
+  <ErrorModal
+  visible={errorVisible}
+  message={modalMessage}
+  type={modalType as any}
+  onClose={() => {
+    setErrorVisible(false)
+    if (modalType === "error") setPasswordPromptVisible(true)
+  }}
+  />
+  </View>
   )
 }
 
