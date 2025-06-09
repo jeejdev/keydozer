@@ -1,10 +1,11 @@
 import { getRandomBytesAsync, digestStringAsync, CryptoDigestAlgorithm } from "expo-crypto"
 import CryptoJS from "react-native-crypto-js"
+import Constants from "expo-constants";
 
 const getSaltedPassword = (password: string): string => {
-  const salt = process.env.EXPO_PUBLIC_ENCRYPTION_KEY
-  return password + salt
-}
+  const salt = Constants.expoConfig.extra.encryptionKey;
+  return password + salt;
+};
 
 export const generateRandomMasterKey = async (): Promise<string> => {
   try {

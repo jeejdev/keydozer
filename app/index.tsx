@@ -41,6 +41,7 @@ import { auth, db } from "@/services/firebaseConfig"
 import { collection, doc, getDoc, getDocs, setDoc, addDoc } from "firebase/firestore"
 import { ScrollView } from "react-native"
 import { copyToClipboard, generateStrongPassword } from "@/utils/passwordUtils"
+import Constants from "expo-constants";
 
 const LoginScreen: React.FC = () => {
   const router = useRouter()
@@ -48,6 +49,8 @@ const LoginScreen: React.FC = () => {
 
   const DEV_EMAIL = "novaconta@gmail.com"
   const DEV_PASSWORD = "*K(Yg*A<;Fy*8.^6"
+
+  const isDevelopmentMode = Constants.expoConfig.extra.developmentMode === "True";
 
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
@@ -498,7 +501,7 @@ const LoginScreen: React.FC = () => {
             </TouchableOpacity>
           </View>
 
-          {process.env.EXPO_PUBLIC_DEVELOPMENT_MODE === "True" && (
+          {isDevelopmentMode && (
             <>
               <TouchableOpacity style={[styles.button, { backgroundColor: colors.green }]} onPress={autofillTestAccount}>
                 <Text style={styles.buttonText}>[DEV] Preencher Conta de Teste</Text>
