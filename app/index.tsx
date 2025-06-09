@@ -24,6 +24,7 @@ import {
   addPassword,
   getPasswordsByUserId,
   deleteUserByEmail,
+  updateUserEncryptedData,
 } from "../services/database"
 import { colors } from "../utils/theme"
 import ErrorModal from "../components/ErrorModal"
@@ -41,7 +42,6 @@ import { auth, db } from "@/services/firebaseConfig"
 import { collection, doc, getDoc, getDocs, setDoc, addDoc } from "firebase/firestore"
 import { ScrollView } from "react-native"
 import { copyToClipboard, generateStrongPassword } from "@/utils/passwordUtils"
-import Constants from "expo-constants";
 
 const LoginScreen: React.FC = () => {
   const router = useRouter()
@@ -49,8 +49,6 @@ const LoginScreen: React.FC = () => {
 
   const DEV_EMAIL = "novaconta@gmail.com"
   const DEV_PASSWORD = "*K(Yg*A<;Fy*8.^6"
-
-  const isDevelopmentMode = Constants.expoConfig.extra.developmentMode === "True";
 
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
@@ -127,24 +125,23 @@ const LoginScreen: React.FC = () => {
       console.log("🔐 Iniciando login com:", email)
       let localUser = await getUserByEmail(email)
 
-      const savedPass = await AsyncStorage.getItem(`password:${email}`)
       const offlineLoginAllowed = await AsyncStorage.getItem(`offlineLoginAllowed:${email}`)
 
-      if (localUser && savedPass && offlineLoginAllowed === "true") {
-        console.log("⚠️ Tentando login offline...")
+      if (localUser && offlineLoginAllowed === "true") {
+        console.log("⚠️ Tentando login offline com senha digitada...")
 
-        const decryptedKey = decryptWithPassword(localUser.encryptedMasterKey, savedPass)
+        const decryptedKey = decryptWithPassword(localUser.encryptedMasterKey, password)
         if (decryptedKey) {
           console.log("✅ Login offline realizado com sucesso.")
           setLocalUser({ ...localUser, decryptedMasterKey: decryptedKey })
           await AsyncStorage.setItem("lastLoggedInEmail", email)
+          await AsyncStorage.setItem(`password:${email}`, password)
           router.replace("/home")
           return
         } else {
-          console.log("❌ Falha ao descriptografar na tentativa de login offline. Prosseguindo com login online.")
+          console.log("❌ Falha no login offline com senha digitada. Prosseguindo com login online.")
         }
       }
-
 
       await loginUser(email, password)
       const firebaseUser = auth.currentUser
@@ -332,16 +329,16 @@ const LoginScreen: React.FC = () => {
       }, { merge: true })
 
       // Zera senha no SQLite tbm
-      await deleteUserByEmail(email)
+      //await deleteUserByEmail(email)
 
+      await AsyncStorage.setItem(`offlineLoginAllowed:${email}`, "true")
+
+      await updateUserEncryptedData(email, newHashedPassword, encryptedMasterKey)
       setNewPasswordValue(newPassword)
       setNewPasswordModalVisible(true)
       setShowForgotPasswordModal(false)
       setForgotQuestions([])
       setForgotAnswers([])
-
-      await AsyncStorage.setItem(`offlineLoginAllowed:${email}`, "true")
-      await AsyncStorage.setItem(`password:${email}`, newPassword)
 
     } catch (err) {
       console.error("Erro ao confirmar respostas:", err)
@@ -501,7 +498,7 @@ const LoginScreen: React.FC = () => {
             </TouchableOpacity>
           </View>
 
-          {isDevelopmentMode && (
+          {process.env.EXPO_PUBLIC_DEVELOPMENT_MODE === "True" && (
             <>
               <TouchableOpacity style={[styles.button, { backgroundColor: colors.green }]} onPress={autofillTestAccount}>
                 <Text style={styles.buttonText}>[DEV] Preencher Conta de Teste</Text>
