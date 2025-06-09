@@ -96,6 +96,22 @@ npx expo start --ios
 
 ---
 
+### 🛠️ Como gerar o APK de release
+
+Para gerar um APK de release pronto para instalação em dispositivos Android:
+
+```sh
+npx expo run:android --variant release
+```
+
+Após o build, o APK será gerado na pasta:
+android/app/build/outputs/apk/release/app-release.apk
+
+Você pode copiar esse APK para a pasta apk/ no repositório (como foi feito nesta versão) para facilitar o acesso.
+
+
+---
+
 ## 📌 Tecnologias Utilizadas
 - **React Native** + **Expo**
 - **SQLite** (armazenamento local)
@@ -105,4 +121,4 @@ npx expo start --ios
 
 ---
 
-> Última atualização: 08/06/2025
+> Última atualização: 09/06/2025
